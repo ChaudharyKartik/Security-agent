@@ -1,286 +1,261 @@
 """
-Network Agent
-Runs Nmap service/version scan. Falls back to mock data when Nmap
-is unavailable (dev/demo mode). Correlates open ports to known CVEs
-via the NVD API (best-effort, no API key required for basic queries).
+Network Agent — Nmap with auth support + PoC evidence capture.
+Tool label: Nmap 7.x (real) | Mock scanner (fallback)
 """
 import logging
-import json
-import time
 from datetime import datetime
-
-import httpx
 
 logger = logging.getLogger(__name__)
 
-# Ports that get deeper version detection
+TOOL_NAME    = "Nmap 7.x"
+TOOL_FALLBACK = "Mock Network Scanner"
+
 DEEP_SCAN_PORTS = "21,22,23,25,53,80,110,143,443,445,3306,3389,5432,6379,8080,8443,9200,27017"
 
-# Mock data used when Nmap is not installed
-MOCK_SCAN_RESULTS = {
-    "hosts": [
-        {
-            "hostname": "target",
-            "ip": "192.168.1.1",
-            "state": "up",
-            "ports": [
-                {"port": 22,   "state": "open", "service": "ssh",    "product": "OpenSSH",    "version": "7.4",  "cpe": "cpe:/a:openbsd:openssh:7.4"},
-                {"port": 80,   "state": "open", "service": "http",   "product": "Apache httpd","version": "2.4.6","cpe": "cpe:/a:apache:http_server:2.4.6"},
-                {"port": 443,  "state": "open", "service": "https",  "product": "Apache httpd","version": "2.4.6","cpe": "cpe:/a:apache:http_server:2.4.6"},
-                {"port": 3306, "state": "open", "service": "mysql",  "product": "MySQL",       "version": "5.7.30","cpe": "cpe:/a:mysql:mysql:5.7.30"},
-                {"port": 6379, "state": "open", "service": "redis",  "product": "Redis",       "version": "3.2.12","cpe": ""},
-            ]
-        }
+MOCK_HOSTS = [{
+    "hostname": "target", "ip": "192.168.1.1", "state": "up",
+    "ports": [
+        {"port":22,   "state":"open","service":"ssh",    "product":"OpenSSH",    "version":"7.4",   "cpe":"cpe:/a:openbsd:openssh:7.4",   "script_output":{}},
+        {"port":80,   "state":"open","service":"http",   "product":"Apache httpd","version":"2.4.6","cpe":"cpe:/a:apache:http_server:2.4.6","script_output":{}},
+        {"port":443,  "state":"open","service":"https",  "product":"Apache httpd","version":"2.4.6","cpe":"cpe:/a:apache:http_server:2.4.6","script_output":{}},
+        {"port":3306, "state":"open","service":"mysql",  "product":"MySQL",       "version":"5.7.30","cpe":"",                               "script_output":{}},
+        {"port":6379, "state":"open","service":"redis",  "product":"Redis",       "version":"3.2.12","cpe":"",                               "script_output":{}},
     ]
-}
+}]
 
 
-def run_network_scan(target: str, recon_data: dict) -> dict:
-    logger.info(f"[NETWORK] Starting network scan on: {target}")
+def run_network_scan(target: str, recon_data: dict, config=None) -> dict:
+    logger.info(f"[NETWORK] Starting network scan: {target}")
     start = datetime.utcnow()
+    host  = recon_data.get("ip_address") or recon_data.get("hostname") or target
 
-    host = recon_data.get("ip_address") or recon_data.get("hostname") or target
-    scan_data = _run_nmap(host)
+    extra_args = ""
+    ports      = DEEP_SCAN_PORTS
+    if config:
+        if config.nmap_extra_args: extra_args = config.nmap_extra_args
+        if config.nmap_ports:      ports      = config.nmap_ports
+        if config.username and config.password:
+            extra_args += f" --script-args 'user={config.username},pass={config.password}'"
+
+    scan_data, tool_used = _run_nmap(host, ports, extra_args)
     findings = []
-
     for host_info in scan_data.get("hosts", []):
         findings.extend(_analyse_host(host_info, target))
 
-    result = {
-        "module": "network",
-        "target": target,
-        "scan_time": (datetime.utcnow() - start).total_seconds(),
-        "raw_nmap": scan_data,
-        "findings": findings,
+    return {
+        "module":     "network",
+        "target":     target,
+        "tool_used":  tool_used,
+        "scan_time":  (datetime.utcnow() - start).total_seconds(),
+        "raw_nmap":   scan_data,
+        "findings":   findings,
+        "auth_used":  config.build_auth_summary() if config else "Unauthenticated",
     }
-    logger.info(f"[NETWORK] Done. Findings: {len(findings)}")
-    return result
 
 
-# ── Nmap wrapper ─────────────────────────────────────────────────────────────
-
-def _run_nmap(host: str) -> dict:
+def _run_nmap(host: str, ports: str, extra_args: str) -> tuple:
     try:
         import nmap  # type: ignore
         nm = nmap.PortScanner()
-        logger.info(f"[NETWORK] Running Nmap on {host} ...")
-        nm.scan(hosts=host, ports=DEEP_SCAN_PORTS,
-                arguments="-sV -sC --open -T4 --host-timeout 120s")
-
+        args = f"-sV -sC --open -T4 --host-timeout 120s {extra_args}".strip()
+        logger.info(f"[NETWORK] nmap {args} -p {ports} {host}")
+        nm.scan(hosts=host, ports=ports, arguments=args)
         hosts_data = []
         for h in nm.all_hosts():
-            host_info = {
-                "hostname": nm[h].hostname() or h,
-                "ip": h,
-                "state": nm[h].state(),
-                "ports": []
-            }
+            hi = {"hostname": nm[h].hostname() or h, "ip": h,
+                  "state": nm[h].state(), "ports": []}
             for proto in nm[h].all_protocols():
                 for port, data in nm[h][proto].items():
                     if data["state"] == "open":
-                        host_info["ports"].append({
-                            "port": port,
-                            "state": data["state"],
-                            "service": data.get("name", "unknown"),
-                            "product": data.get("product", ""),
-                            "version": data.get("version", ""),
-                            "extrainfo": data.get("extrainfo", ""),
-                            "cpe": " ".join(data.get("cpe", [])),
-                            "script_output": data.get("script", {}),
+                        hi["ports"].append({
+                            "port": port, "state": data["state"],
+                            "service": data.get("name","unknown"),
+                            "product": data.get("product",""),
+                            "version": data.get("version",""),
+                            "extrainfo": data.get("extrainfo",""),
+                            "cpe": " ".join(data.get("cpe",[])),
+                            "script_output": data.get("script",{}),
                         })
-            hosts_data.append(host_info)
-
-        return {"source": "nmap", "hosts": hosts_data}
-
+            hosts_data.append(hi)
+        return {"source": "nmap", "hosts": hosts_data}, TOOL_NAME
     except ImportError:
-        logger.warning("[NETWORK] python-nmap not installed — using mock data")
-        return {"source": "mock", **MOCK_SCAN_RESULTS}
+        logger.warning("[NETWORK] python-nmap not installed — mock data")
+        return {"source": "mock", "hosts": MOCK_HOSTS}, TOOL_FALLBACK
     except Exception as e:
-        logger.error(f"[NETWORK] Nmap error: {e} — using mock data")
-        return {"source": "mock_fallback", "error": str(e), **MOCK_SCAN_RESULTS}
+        logger.error(f"[NETWORK] Nmap error: {e}")
+        return {"source": "mock_fallback", "hosts": MOCK_HOSTS, "error": str(e)}, TOOL_FALLBACK
 
-
-# ── Analysis ──────────────────────────────────────────────────────────────────
 
 def _analyse_host(host_info: dict, target: str) -> list:
     findings = []
-    ports = host_info.get("ports", [])
+    for p in host_info.get("ports", []):
+        port, service = p["port"], p.get("service","unknown")
+        product, version = p.get("product",""), p.get("version","")
+        ip = host_info.get("ip", target)
 
-    for p in ports:
-        port = p["port"]
-        service = p.get("service", "unknown")
-        product = p.get("product", "")
-        version = p.get("version", "")
+        poc_curl = _build_port_poc(ip, port, service)
 
-        # Flag every open port as informational
         findings.append({
-            "name": f"Open Port: {port}/{service}",
-            "type": "open_port",
-            "risk": _port_risk(port, service),
-            "port": port,
-            "service": service,
-            "product": product,
-            "version": version,
-            "host": host_info.get("ip", target),
-            "description": (
-                f"Port {port}/{service} is open"
-                + (f" running {product} {version}".rstrip() if product else "")
-                + "."
-            ),
+            "name":     f"Open Port: {port}/{service}",
+            "type":     "open_port",
+            "risk":     _port_risk(port, service),
+            "port":     port, "service": service,
+            "product":  product, "version": version, "host": ip,
+            "description": (f"Port {port}/{service} is open"
+                            + (f" running {product} {version}".rstrip() if product else "") + "."),
             "solution": _port_solution(port, service),
+            "evidence": {
+                "type":    "port_open",
+                "curl_poc": poc_curl,
+                "banner":  f"{product} {version}".strip(),
+                "nmap_cmd": f"nmap -sV -p {port} {ip}",
+            },
         })
 
-        # Outdated / vulnerable versions
-        version_findings = _check_version(product, version, port, target)
-        findings.extend(version_findings)
+        findings.extend(_check_version(product, version, port, ip))
+        findings.extend(_check_scripts(p.get("script_output",{}), port, service, ip))
 
-        # Auth / config issues from NSE scripts
-        script_findings = _check_scripts(p.get("script_output", {}), port, service, target)
-        findings.extend(script_findings)
-
-    # Default credentials check
-    findings.extend(_default_cred_findings(ports, target))
-
+    findings.extend(_default_cred_findings(host_info.get("ports",[]), target))
     return findings
 
 
-def _port_risk(port: int, service: str) -> str:
-    critical_ports = {23, 512, 513, 514}   # telnet, rexec, rlogin, rsh
-    high_ports     = {21, 445, 3389, 5900}  # ftp, smb, rdp, vnc
-    medium_ports   = {25, 110, 143, 3306, 5432, 6379, 9200, 27017}
+def _build_port_poc(host: str, port: int, service: str) -> str:
+    templates = {
+        "http":   f'curl -sk "http://{host}:{port}/"',
+        "https":  f'curl -sk "https://{host}:{port}/"',
+        "ftp":    f'ftp {host} {port}',
+        "ssh":    f'ssh -p {port} user@{host}',
+        "mysql":  f'mysql -h {host} -P {port} -u root -p',
+        "redis":  f'redis-cli -h {host} -p {port} PING',
+        "mongodb":f'mongo --host {host} --port {port}',
+    }
+    return templates.get(service, f'nc -zv {host} {port}')
 
-    if port in critical_ports:
-        return "Critical"
-    if port in high_ports:
-        return "High"
-    if port in medium_ports:
-        return "Medium"
-    if service in ("http",) and port not in (80, 8080, 8000):
-        return "Low"
-    return "Info"
+
+def _port_risk(port: int, service: str) -> str:
+    if port in {23, 512, 513, 514}:                  return "Critical"
+    if port in {21, 445, 3389, 5900}:                return "High"
+    if port in {25, 110, 143, 3306, 5432, 6379, 9200, 27017}: return "Medium"
+    return "Low"
 
 
 def _port_solution(port: int, service: str) -> str:
-    solutions = {
-        21:    "Disable FTP; use SFTP/SCP instead. If required, enforce TLS (FTPS).",
-        22:    "Restrict SSH access by IP. Disable root login. Use key-based auth only.",
+    return {
+        21:    "Disable FTP; use SFTP. If required, enforce TLS (FTPS).",
+        22:    "Restrict SSH by IP. Disable root login. Use key-based auth only.",
         23:    "Disable Telnet immediately. Replace with SSH.",
-        25:    "Restrict SMTP relay. Enable SPF/DKIM/DMARC. Use authentication.",
-        445:   "Block SMB externally. Apply latest Windows patches (EternalBlue).",
-        3306:  "Bind MySQL to localhost only. Disable remote root login.",
-        3389:  "Restrict RDP access by IP or VPN. Enable NLA. Patch BlueKeep.",
-        5432:  "Bind PostgreSQL to localhost. Use pg_hba.conf to restrict access.",
-        6379:  "Add Redis AUTH password. Bind to localhost. Disable dangerous commands.",
-        9200:  "Add Elasticsearch authentication. Bind to localhost or VPN.",
-        27017: "Enable MongoDB authentication. Bind to localhost. Disable --noauth.",
-    }
-    return solutions.get(port, f"Verify if port {port}/{service} needs to be publicly exposed. Apply firewall rules.")
+        445:   "Block SMB externally. Apply EternalBlue patches.",
+        3306:  "Bind MySQL to localhost. Disable remote root login.",
+        3389:  "Restrict RDP to VPN/IP whitelist. Enable NLA.",
+        5432:  "Bind PostgreSQL to localhost. Use pg_hba.conf restrictions.",
+        6379:  "Add Redis AUTH password. Bind to localhost.",
+        9200:  "Add Elasticsearch auth. Bind to localhost or VPN.",
+        27017: "Enable MongoDB auth. Bind to localhost. Disable --noauth.",
+    }.get(port, f"Verify port {port}/{service} needs public exposure. Apply firewall rules.")
 
 
 def _check_version(product: str, version: str, port: int, target: str) -> list:
-    """Flag known-vulnerable versions. Uses static rules + optional NVD lookup."""
-    findings = []
     if not product or not version:
-        return findings
-
-    vulnerable = {
-        ("openssh",   "7.4"):  ("CVE-2018-15473", "High",   "OpenSSH 7.4 is vulnerable to username enumeration."),
-        ("apache",    "2.4.6"):("CVE-2017-7679",  "Critical","Apache 2.4.6 is vulnerable to mod_mime buffer overread."),
-        ("mysql",     "5.7.30"):("CVE-2020-14765","High",   "MySQL 5.7.30 contains multiple vulnerabilities."),
-        ("redis",     "3.2.12"):("CVE-2022-0543", "Critical","Redis 3.2.x is vulnerable to Lua sandbox escape."),
-        ("vsftpd",    "2.3.4"): ("CVE-2011-2523", "Critical","vsftpd 2.3.4 contains a backdoor command execution."),
-        ("proftpd",   "1.3.5"): ("CVE-2015-3306", "Critical","ProFTPD 1.3.5 mod_copy allows unauthenticated file copy."),
+        return []
+    vuln_db = {
+        ("openssh",  "7.4"):   ("CVE-2018-15473","High",   "OpenSSH 7.4 — username enumeration via timing attack."),
+        ("apache",   "2.4.6"): ("CVE-2017-7679", "Critical","Apache 2.4.6 — mod_mime buffer overread, potential RCE."),
+        ("mysql",    "5.7.30"):("CVE-2020-14765","High",   "MySQL 5.7.30 — multiple high-severity vulnerabilities."),
+        ("redis",    "3.2.12"):("CVE-2022-0543", "Critical","Redis 3.2.x — Lua sandbox escape, unauthenticated RCE."),
+        ("vsftpd",   "2.3.4"): ("CVE-2011-2523", "Critical","vsftpd 2.3.4 — backdoor on port 6200 after :) in username."),
+        ("proftpd",  "1.3.5"): ("CVE-2015-3306", "Critical","ProFTPD 1.3.5 mod_copy — unauthenticated file copy/read."),
     }
     prod_lower = product.lower()
-    ver_key = version.split(" ")[0]
-
-    for (prod_key, ver_match), (cve, risk, desc) in vulnerable.items():
-        if prod_key in prod_lower and ver_match in ver_key:
+    ver_key    = version.split(" ")[0]
+    findings   = []
+    for (pk, vm), (cve, risk, desc) in vuln_db.items():
+        if pk in prod_lower and vm in ver_key:
             findings.append({
-                "name": f"Vulnerable Version: {product} {version}",
-                "type": "vulnerable_version",
-                "risk": risk,
-                "port": port,
-                "service": prod_lower,
-                "host": target,
-                "cve": cve,
+                "name":    f"Vulnerable Version: {product} {version}",
+                "type":    "vulnerable_version",
+                "risk":    risk,
+                "port":    port, "service": prod_lower, "host": target,
+                "cve":     cve,
                 "description": desc,
-                "solution": f"Upgrade {product} to the latest stable release. Apply vendor patches immediately.",
+                "solution": f"Upgrade {product} to latest stable immediately.",
+                "evidence": {
+                    "type":    "version_detection",
+                    "banner":  f"{product} {version}",
+                    "cve":     cve,
+                    "nmap_cmd": f"nmap -sV -p {port} {target}",
+                    "curl_poc": f'curl -sk "http://{target}:{port}/" -I',
+                },
             })
-
     return findings
 
 
 def _check_scripts(scripts: dict, port: int, service: str, target: str) -> list:
     findings = []
-    if not scripts:
-        return findings
-
-    for script_name, output in scripts.items():
-        output_str = str(output).lower()
-
-        if "anonymous" in output_str and service == "ftp":
+    for script_name, output in (scripts or {}).items():
+        out = str(output).lower()
+        if "anonymous" in out and service == "ftp":
             findings.append({
-                "name": "FTP Anonymous Login Enabled",
-                "type": "auth_misconfiguration",
-                "risk": "High",
-                "port": port,
-                "service": "ftp",
-                "host": target,
-                "description": "FTP server allows anonymous login, exposing files without authentication.",
-                "solution": "Disable anonymous FTP access in the server configuration.",
+                "name": "FTP Anonymous Login Enabled", "type": "auth_misconfiguration",
+                "risk": "High", "port": port, "service": "ftp", "host": target,
+                "description": "FTP allows anonymous login — no auth required to access files.",
+                "solution": "Disable anonymous FTP in server config.",
+                "evidence": {
+                    "type":    "auth_bypass",
+                    "curl_poc": f"ftp {target} {port}  # login: anonymous / anonymous",
+                    "raw_response": str(output)[:500],
+                },
             })
-
-        if "ssl" in script_name and ("expired" in output_str or "self-signed" in output_str):
+        if "ssl" in script_name and ("expired" in out or "self-signed" in out):
             findings.append({
-                "name": "Invalid SSL Certificate",
-                "type": "ssl_error",
-                "risk": "Medium",
-                "port": port,
-                "service": service,
-                "host": target,
-                "description": "SSL certificate is self-signed or expired, causing browser trust warnings.",
-                "solution": "Replace with a valid certificate from a trusted CA (e.g. Let's Encrypt).",
+                "name": "Invalid SSL Certificate", "type": "ssl_error",
+                "risk": "Medium", "port": port, "host": target,
+                "description": "SSL cert is self-signed or expired — MITM risk.",
+                "solution": "Replace with a valid CA-signed certificate (e.g. Let's Encrypt).",
+                "evidence": {
+                    "type":    "ssl_issue",
+                    "curl_poc": f'openssl s_client -connect {target}:{port}',
+                    "raw_response": str(output)[:500],
+                },
             })
-
-        if "smb-vuln" in script_name and ("vulnerable" in output_str or "true" in output_str):
+        if "smb-vuln" in script_name and ("vulnerable" in out or "true" in out):
             findings.append({
-                "name": f"SMB Vulnerability Detected ({script_name})",
-                "type": "web_vulnerability",
-                "risk": "Critical",
-                "port": port,
-                "service": "smb",
-                "host": target,
-                "description": f"Nmap NSE script '{script_name}' flagged the target as potentially vulnerable.",
-                "solution": "Apply MS17-010 patch. Disable SMBv1. Block port 445 externally.",
+                "name": f"SMB Vulnerability ({script_name})", "type": "web_vulnerability",
+                "risk": "Critical", "port": port, "service": "smb", "host": target,
+                "description": f"Nmap NSE {script_name} confirms SMB vulnerability.",
+                "solution": "Apply MS17-010 patch. Disable SMBv1. Block 445 externally.",
+                "evidence": {
+                    "type":    "smb_vuln",
+                    "nmap_cmd": f"nmap --script={script_name} -p 445 {target}",
+                    "raw_response": str(output)[:500],
+                },
             })
-
     return findings
 
 
 def _default_cred_findings(ports: list, target: str) -> list:
-    """Flag services commonly left with default credentials."""
     findings = []
-    default_cred_services = {
-        3306: ("MySQL",     "root/root or root/<blank>"),
-        5432: ("PostgreSQL","postgres/postgres"),
-        6379: ("Redis",     "no password (default)"),
-        9200: ("Elasticsearch", "no authentication (default)"),
-        27017:("MongoDB",   "no authentication (default)"),
-        3389: ("RDP",       "Administrator/<blank> or common passwords"),
+    cred_map = {
+        3306: ("MySQL",         "root / <blank>",  f"mysql -h {target} -u root -p"),
+        5432: ("PostgreSQL",    "postgres/postgres",f"psql -h {target} -U postgres"),
+        6379: ("Redis",         "no auth (default)",f"redis-cli -h {target} PING"),
+        9200: ("Elasticsearch", "no auth (default)",f'curl -sk "http://{target}:9200/_cat/indices"'),
+        27017:("MongoDB",       "no auth (default)",f"mongo --host {target}"),
+        3389: ("RDP",           "Administrator/<blank>","mstsc /v:{target}"),
     }
-    open_port_nums = {p["port"] for p in ports if p.get("state") == "open"}
-    for port, (svc, default) in default_cred_services.items():
-        if port in open_port_nums:
+    open_ports = {p["port"] for p in ports if p.get("state") == "open"}
+    for port, (svc, creds, poc) in cred_map.items():
+        if port in open_ports:
             findings.append({
-                "name": f"Potential Default Credentials: {svc}",
-                "type": "auth_misconfiguration",
-                "risk": "High",
-                "port": port,
-                "service": svc.lower(),
-                "host": target,
-                "description": (f"{svc} on port {port} may use default credentials ({default}). "
-                                "Default credentials are the #1 cause of database breaches."),
-                "solution": f"Set a strong unique password for {svc}. Restrict port {port} to trusted IPs only.",
+                "name":    f"Potential Default Credentials: {svc}",
+                "type":    "auth_misconfiguration",
+                "risk":    "High",
+                "port":    port, "service": svc.lower(), "host": target,
+                "description": f"{svc}:{port} may use default credentials ({creds}).",
+                "solution": f"Set a strong unique password. Restrict port {port} to trusted IPs.",
+                "evidence": {
+                    "type":    "default_creds",
+                    "curl_poc": poc,
+                    "default_creds": creds,
+                },
             })
     return findings

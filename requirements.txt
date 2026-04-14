@@ -3,6 +3,11 @@ uvicorn[standard]==0.29.0
 pydantic==2.7.1
 python-multipart==0.0.9
 httpx==0.27.0
-python-nmap==0.7.1
 requests==2.31.0
 streamlit==1.35.0
+
+# Optional real tool integrations (graceful fallback if absent)
+python-nmap==0.7.1
+
+# Report formats
+fpdf2==2.7.9
