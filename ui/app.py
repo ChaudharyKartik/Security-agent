@@ -97,8 +97,10 @@ with st.sidebar:
     st.caption("Multi-Agent · Auth-Aware · Real CVSS · PoC Evidence")
     st.divider()
     alive = check_api()
-    st.success("API Online ✅") if alive else st.error("API Offline 🔴")
-    if not alive:
+    if alive:
+        st.success("API Online ✅")
+    else:
+        st.error("API Offline 🔴")
         st.caption("`uvicorn main:app --reload`")
     st.divider()
     page = st.radio("Navigation", [
@@ -394,35 +396,41 @@ elif page == "✅ Validate Findings":
                         st.code(f"CVE: {f['cve']}")
                     st.info(f"**Analyst Note:** {f.get('analyst_note','-')}")
 
-                    # PoC Evidence
+                    # PoC Evidence — checkbox toggle (no nested expander)
                     ev = f.get("evidence",{}) or {}
                     if ev:
-                        with st.expander("🔍 PoC Evidence"):
+                        if st.checkbox("🔍 Show PoC Evidence", key=f"poc_{fid}"):
                             poc = ev.get("curl_poc","")
                             if poc:
-                                st.caption("**PoC Command:**")
+                                st.caption("PoC Command:")
                                 st.code(poc, language="bash")
-                            if ev.get("response_snippet") or ev.get("response_headers"):
-                                st.caption("**Response Evidence:**")
-                                st.code(ev.get("response_snippet") or ev.get("response_headers",""), language="http")
+                            resp = ev.get("response_snippet") or ev.get("response_headers","")
+                            if resp:
+                                st.caption("Response Evidence:")
+                                st.code(resp[:600], language="http")
                             if ev.get("nmap_cmd"):
-                                st.caption("**Nmap Command:**")
+                                st.caption("Nmap Command:")
                                 st.code(ev["nmap_cmd"], language="bash")
                             if ev.get("banner"):
-                                st.caption(f"**Banner:** `{ev['banner']}`")
+                                st.caption(f"Banner: `{ev['banner']}`")
                             if ev.get("default_creds"):
-                                st.caption(f"**Default Credentials:** `{ev['default_creds']}`")
+                                st.caption(f"Default Credentials: `{ev['default_creds']}`")
 
-                    # Exploitation narrative
+                    # Exploitation narrative — checkbox toggle (no nested expander)
                     narr = f.get("exploitation_narrative","")
                     if narr:
-                        with st.expander("⚠️ Attacker Exploitation Chain"):
-                            for line in narr.split("\n"):
-                                if line.strip():
-                                    if line.startswith("**"):
-                                        st.markdown(line)
-                                    else:
-                                        st.write(line)
+                        if st.checkbox("⚠️ Show Attacker Exploitation Chain", key=f"narr_{fid}"):
+                            st.markdown(
+                                f'<div style="background:#1a0505;border-left:3px solid #dc2626;'
+                                f'padding:10px 14px;border-radius:0 4px 4px 0;font-size:13px;'
+                                f'color:#fca5a5;line-height:1.8">'
+                                + narr.replace("\n","<br>")
+                                        .replace("**Step","<strong>Step")
+                                        .replace("**Business","<strong>Business")
+                                        .replace(":**",":</strong>")
+                                + "</div>",
+                                unsafe_allow_html=True
+                            )
 
                     if f.get("compliance"):
                         st.caption("Compliance: " + " | ".join(f["compliance"]))
