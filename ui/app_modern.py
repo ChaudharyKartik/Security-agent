@@ -199,11 +199,11 @@ def check_api():
 
 def severity_badge_html(severity):
     badges = {
-        "Critical": '<span class="badge badge-critical">CRITICAL</span>',
-        "High": '<span class="badge badge-high">HIGH</span>',
-        "Medium": '<span class="badge badge-medium">MEDIUM</span>',
-        "Low": '<span class="badge badge-low">LOW</span>',
-        "Info": '<span class="badge badge-info">INFO</span>'
+        "Critical": '<span class="badge badge-critical">🔴 CRITICAL</span>',
+        "High": '<span class="badge badge-high">🟠 HIGH</span>',
+        "Medium": '<span class="badge badge-medium">🟡 MEDIUM</span>',
+        "Low": '<span class="badge badge-low">🔵 LOW</span>',
+        "Info": '<span class="badge badge-info">⚪ INFO</span>'
     }
     return badges.get(severity, severity)
 
@@ -214,24 +214,25 @@ def severity_badge_html(severity):
 with st.sidebar:
     st.markdown("""
     <div style="text-align: center; padding: 24px 0; margin-bottom: 24px; border-bottom: 1px solid #2a3342;">
-        <h3 style="margin: 0 0 12px 0; font-size: 18px; font-weight: 800; color: #e8e8e8;">Security Hub</h3>
-        <p style="margin: 0; font-size: 11px; color: #a0a8b8; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Vulnerability Assessment Platform</p>
+        <h2 style="margin: 0; font-size: 28px; color: #d4a574;">🛡️</h2>
+        <h3 style="margin: 12px 0 0 0; font-size: 18px; font-weight: 800; color: #e8e8e8;">Security Hub</h3>
+        <p style="margin: 6px 0 0 0; font-size: 11px; color: #a0a8b8; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Vulnerability Assessment Platform</p>
     </div>
     """, unsafe_allow_html=True)
     
     alive = check_api()
     if alive:
-        st.success("Connected")
+        st.success("✅ Connected", icon="✓")
     else:
-        st.error("Offline")
+        st.error("❌ Offline", icon="✗")
     
     st.divider()
     
-    page = st.radio("Menu", ["Scan", "Dashboard", "Review", "Export", "Guide"], label_visibility="collapsed")
+    page = st.radio("Menu", ["🎯 Scan", "📊 Dashboard", "✅ Review", "📄 Export", "❓ Guide"], label_visibility="collapsed")
     
     st.divider()
     
-    with st.expander("Settings"):
+    with st.expander("⚙️ Settings"):
         st.selectbox("Color Theme", ["Forest Green", "Slate", "Copper"])
         st.toggle("Advanced Mode")
 
@@ -239,8 +240,8 @@ with st.sidebar:
 # PAGE: SCAN
 # ────────────────────────────────────────────────────────────────────────────
 
-if page == "Scan":
-    st.markdown("# New Assessment")
+if page == "🎯 Scan":
+    st.markdown("# 🎯 New Assessment")
     
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -254,7 +255,7 @@ if page == "Scan":
     
     st.divider()
     
-    with st.expander("Authentication", expanded=False):
+    with st.expander("🔑 Authentication", expanded=False):
         auth_type = st.selectbox("Method", ["None", "Basic", "Form", "Token", "Cookie", "API Key"])
         
         cred = {"auth_type": auth_type.lower()}
@@ -281,10 +282,10 @@ if page == "Scan":
         pass
     
     with col2:
-        include_cloud = st.checkbox("Include Cloud")
+        include_cloud = st.checkbox("☁️ Cloud Scan")
     
     with col3:
-        launch = st.button("LAUNCH", type="primary", use_container_width=True)
+        launch = st.button("🚀 LAUNCH", type="primary", use_container_width=True)
     
     if launch:
         if not target:
@@ -322,7 +323,7 @@ if page == "Scan":
                 final = api_get(f"/session/{result['session_id']}/status")
                 if final and final.get("status") == "completed":
                     st.balloons()
-                    st.success(f"Complete! {final.get('total_findings')} vulnerabilities found")
+                    st.success(f"✅ Complete! {final.get('total_findings')} vulnerabilities")
                     
                     bd = final.get("summary", {}).get("severity_breakdown", {})
                     c1, c2, c3, c4, c5 = st.columns(5)
@@ -340,10 +341,10 @@ if page == "Scan":
 # PAGE: DASHBOARD
 # ────────────────────────────────────────────────────────────────────────────
 
-elif page == "Dashboard":
-    st.markdown("# Assessment Dashboard")
+elif page == "📊 Dashboard":
+    st.markdown("# 📊 Assessment Dashboard")
     
-    if st.button("Refresh", use_container_width=False):
+    if st.button("🔄 Refresh", use_container_width=False):
         st.rerun()
     
     data = api_get("/sessions")
@@ -352,7 +353,7 @@ elif page == "Dashboard":
         st.info("No scans yet")
     else:
         for s in reversed(data.get("sessions", [])[:10]):
-            with st.expander(f"{s.get('target', '?')} | {s.get('total_findings', 0)} findings | {s.get('status')}"):
+            with st.expander(f"🎯 {s.get('target', '?')} | {s.get('total_findings', 0)} findings | {s.get('status')}"):
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Status", s.get("status"))
                 c2.metric("Risk", s.get("risk_rating", "-"))
@@ -362,34 +363,22 @@ elif page == "Dashboard":
 # PAGE: REVIEW
 # ────────────────────────────────────────────────────────────────────────────
 
-elif page == "Review":
-    st.markdown("# Findings Review")
+elif page == "✅ Review":
+    st.markdown("# ✅ Findings Review")
     
-    # Fetch available sessions
-    sessions_data = api_get("/sessions")
-    sessions_list = sessions_data.get("sessions", []) if sessions_data else []
+    sid = st.text_input("Session ID", value=st.session_state.get("sid", ""))
     
-    if not sessions_list:
-        st.info("No scans available. Start a new assessment in the Scan tab.")
+    if not sid:
+        st.info("Enter Session ID")
     else:
-        # Create a mapping of display names to session IDs
-        session_options = {
-            f"{s.get('target', 'Unknown')} | {s.get('total_findings', 0)} findings | {s.get('status', 'unknown')}": s.get('session_id')
-            for s in sessions_list
-        }
-        
-        selected_display = st.selectbox("Select Scan", list(session_options.keys()))
-        sid = session_options[selected_display]
-        
         data = api_get(f"/session/{sid}")
         if not data:
-            st.error("Session not found")
+            st.error("Not found")
         else:
             findings = data.get("enriched_findings", [])
             summary = data.get("summary", {})
             bd = summary.get("severity_breakdown", {})
             
-            st.markdown("### Severity Breakdown")
             c1, c2, c3, c4, c5 = st.columns(5)
             for col, sev in [(c1, "Critical"), (c2, "High"), (c3, "Medium"), (c4, "Low"), (c5, "Info")]:
                 with col:
@@ -397,185 +386,53 @@ elif page == "Review":
             
             st.divider()
             
-            st.markdown("### Finding Details")
-            
-            if not findings:
-                st.info("No findings")
-            else:
-                # Filter and sort
-                col1, col2 = st.columns(2)
-                with col1:
-                    filter_severity = st.multiselect("Filter Severity", 
-                        ["Critical", "High", "Medium", "Low", "Info"],
-                        default=["Critical", "High", "Medium"])
-                
-                with col2:
-                    sort_by = st.selectbox("Sort by", ["Severity", "CVSS Score"])
-                
-                st.divider()
-                
-                filtered = [f for f in findings if f.get("severity") in filter_severity]
-                
-                for idx, f in enumerate(filtered):
-                    finding_id = f.get("id", f"finding_{idx}")
-                    severity = f.get("severity", "Info")
-                    name = f.get("name", "Unknown")
-                    cvss = f.get("cvss_score", "-")
+            for f in findings:
+                severity = f.get("severity", "Info")
+                with st.expander(f"{severity_badge_html(severity)} {f.get('name')} | CVSS {f.get('cvss_score')}"):
+                    st.markdown(f.get("description", ""))
+                    st.markdown(f"**Fix:** {f.get('solution', '')}")
                     
-                    with st.expander(f"[{severity}] {name} (CVSS {cvss})"):
-                        # Main finding info
-                        col_left, col_right = st.columns([2, 1])
-                        
-                        with col_left:
-                            st.markdown("**Description**")
-                            st.write(f.get("description", "N/A"))
-                            
-                            st.markdown("**Recommendation**")
-                            st.write(f.get("solution", "N/A"))
-                            
-                            # PROOF OF CONCEPT / EVIDENCE
-                            evidence = f.get("evidence", {})
-                            if evidence:
-                                st.markdown("**Proof of Concept**")
-                                
-                                # Show curl command
-                                if evidence.get("curl_poc"):
-                                    st.code(evidence["curl_poc"], language="bash")
-                                
-                                # Show request details (not nested expander)
-                                if evidence.get("method") or evidence.get("url"):
-                                    st.markdown("_Request Details_")
-                                    if evidence.get("method"):
-                                        st.caption(f"Method: {evidence['method']}")
-                                    if evidence.get("url"):
-                                        st.caption(f"URL: {evidence['url']}")
-                                    st.divider()
-                                
-                                # Show response
-                                if evidence.get("response_snippet") or evidence.get("response_headers"):
-                                    st.markdown("_Response Evidence_")
-                                    resp = evidence.get("response_snippet") or evidence.get("response_headers", "")
-                                    st.code(resp[:800], language="http")
-                                    st.divider()
-                                
-                                # Network-specific evidence
-                                if evidence.get("nmap_cmd"):
-                                    st.markdown("_Network Scan_")
-                                    st.code(evidence["nmap_cmd"], language="bash")
-                                    if evidence.get("banner"):
-                                        st.caption(f"Banner: {evidence['banner']}")
-                                    st.divider()
-                                
-                                # Show affected parameters
-                                if evidence.get("param"):
-                                    st.info(f"Parameter: {evidence['param']}")
-                                
-                                if evidence.get("affected_url"):
-                                    st.info(f"Affected URL: {evidence['affected_url']}")
-                            
-                            # Compliance info
-                            if f.get("compliance"):
-                                st.markdown("**Compliance**")
-                                st.write(", ".join(f["compliance"]))
-                        
-                        with col_right:
-                            st.markdown("**Severity**")
-                            st.write(severity)
-                            
-                            st.markdown("**CVSS Score**")
-                            st.write(cvss)
-                            
-                            if f.get("cvss_vector"):
-                                st.markdown("**CVSS Vector**")
-                                st.code(f["cvss_vector"], language="text")
-                            
-                            st.markdown("**Module**")
-                            st.write(f.get("module", "-"))
-                            
-                            st.markdown("**Tool**")
-                            st.write(f.get("tool_used", "-"))
-                            
-                            if f.get("cve"):
-                                st.markdown("**CVE**")
-                                st.write(f["cve"])
-                        
-                        # Validation buttons
-                        st.divider()
-                        st.markdown("**Validation**")
-                        
-                        col_validate = st.columns(3)
-                        
-                        with col_validate[0]:
-                            if st.button("Approve", key=f"approve_{finding_id}"):
-                                api_post(f"/validate/{sid}", {
-                                    "finding_id": finding_id,
-                                    "action": "approve",
-                                    "validator_name": "Security Analyst"
-                                })
-                                st.success("Approved")
-                                st.rerun()
-                        
-                        with col_validate[1]:
-                            if st.button("Reject", key=f"reject_{finding_id}"):
-                                api_post(f"/validate/{sid}", {
-                                    "finding_id": finding_id,
-                                    "action": "reject",
-                                    "validator_name": "Security Analyst"
-                                })
-                                st.success("Rejected")
-                                st.rerun()
-                        
-                        with col_validate[2]:
-                            if st.button("Escalate", key=f"escalate_{finding_id}"):
-                                api_post(f"/validate/{sid}", {
-                                    "finding_id": finding_id,
-                                    "action": "escalate",
-                                    "validator_name": "Security Analyst"
-                                })
-                                st.success("Escalated")
-                                st.rerun()
+                    c1, c2, c3 = st.columns(3)
+                    if c1.button("✅", key=f"a_{f.get('id')}"):
+                        pass
+                    if c2.button("❌", key=f"r_{f.get('id')}"):
+                        pass
+                    if c3.button("🔖", key=f"e_{f.get('id')}"):
+                        pass
 
 # ────────────────────────────────────────────────────────────────────────────
 # PAGE: EXPORT
 # ────────────────────────────────────────────────────────────────────────────
 
-elif page == "Export":
-    st.markdown("# Report Export")
+elif page == "📄 Export":
+    st.markdown("# 📄 Report Export")
     st.info("Select a session and download report in your preferred format")
 
 # ────────────────────────────────────────────────────────────────────────────
 # PAGE: GUIDE
 # ────────────────────────────────────────────────────────────────────────────
 
-elif page == "Guide":
-    st.markdown("# Getting Started")
+elif page == "❓ Guide":
+    st.markdown("# ❓ Getting Started")
     st.markdown("""
     ## Quick Start
     
-    1. **Scan** - Enter target URL
-    2. **Dashboard** - View all scans
-    3. **Review** - Check findings with evidence
-    4. **Export** - Download report
+    1. **New Scan** → Enter target URL
+    2. **Dashboard** → View all scans
+    3. **Review** → Check findings
+    4. **Export** → Download report
     
     ## Features
     
     - Multi-agent scanning (Web, Network, Cloud)
     - Authentication support (Basic, Form, Token, etc.)
     - Real CVSS scoring
-    - Proof of Concept evidence (curl commands, responses)
+    - Evidence capture & PoCs
     - Human validation workflow
-    
-    ## Proof of Concept Evidence
-    
-    Each finding includes:
-    - **Curl command** - Reproduce the vulnerability
-    - **Request details** - HTTP method, headers, body
-    - **Response evidence** - Server response that proves the issue
-    - **Network data** - Nmap commands and banners
     
     ## Supported Targets
     
-    - Web: https://example.com
-    - IP: 192.168.1.100
-    - Domain: example.com
+    - Web: `https://example.com`
+    - IP: `192.168.1.100`
+    - Domain: `example.com`
     """)
