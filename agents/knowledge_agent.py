@@ -204,10 +204,12 @@ class KnowledgeAgent:
         return plan
 
     def _resolve_full(self, plan: ExecutionPlan, domain_hint: str = None) -> ExecutionPlan:
-        """Resolve all tests. Optional domain filter."""
+        """
+        Resolve ALL tests from the registry regardless of domain.
+        domain_hint is intentionally ignored here — full scan means full coverage.
+        Domain filtering only applies in owasp mode.
+        """
         for item in self.registry["items"]:
-            if domain_hint and item["domain"] != domain_hint:
-                continue
             plan.resolved_tests.append(self._to_resolved(item))
             plan.resolution_log.append(f"FULL SCAN: added {item['id']}")
         return plan

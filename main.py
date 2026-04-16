@@ -1,31 +1,36 @@
 """
-FastAPI Entry Point — v3 (Knowledge Agent integrated)
+FastAPI Entry Point — v4 (Phase 2: DB persistence)
 
-New fields in ScanRequest:
-  scan_mode:       full | checklist | single | owasp
-  requested_tests: list of canonical test names for checklist/single modes
+Changes from v3:
+  - DB initialised on startup (SQLite by default, PostgreSQL via DATABASE_URL)
+  - In-memory `sessions` dict kept for active scans (real-time status polling)
+  - Completed sessions read from DB on restart (no data loss)
+  - All validation actions persisted to DB as audit trail
+  - Report paths saved to DB on generation
+  - /sessions endpoint reads from DB (paginated)
+  - /session/{id} falls back to DB if not in memory
 
-New endpoints:
-  GET  /checklist            — list all available tests
-  GET  /checklist/search     — search tests by name
-  GET  /checklist/{id}       — get single test definition
-  GET  /session/{id}/plan    — see the resolved execution plan for a session
+Scan modes supported:
+  full | checklist | single | owasp
 """
 import logging
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
+from sqlalchemy.orm import Session
 
 from orchestrator import Orchestrator
 from agents.knowledge_agent import KnowledgeAgent, MODE_FULL
 from scan_config import ScanConfig
 from validator import validate_finding, validate_batch, get_validation_stats
 from report_generator import generate_report
+from database.connection import init_db, get_db
+from database import crud
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -33,14 +38,25 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="AI VAPT Agent Platform",
-    version="3.0.0",
-    description="Knowledge Agent-driven VAPT. Checklist-first, OWASP fallback. Authorized use only.",
+    version="4.0.0",
+    description="Knowledge Agent-driven VAPT. Checklist-first, OWASP fallback. "
+                "Phase 2: DB-persistent. Authorized use only.",
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
+# In-memory store — used ONLY for active scans (real-time status polling)
+# Completed sessions are read from DB. On restart active scans are lost (acceptable).
 sessions: dict = {}
+
 _ka = KnowledgeAgent()   # singleton — loaded once at startup
+
+
+@app.on_event("startup")
+def on_startup():
+    """Create all DB tables on startup if they don't exist."""
+    init_db()
+    logger.info("[MAIN] Database ready.")
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -49,9 +65,8 @@ class ScanRequest(BaseModel):
     target:          str
     description:     Optional[str]  = None
 
-    # Scan mode — this is new
     scan_mode:       str            = "full"    # full | checklist | single | owasp
-    requested_tests: list[str]      = []        # e.g. ["SQL Injection", "XSS"]
+    requested_tests: list[str]      = []
 
     # Auth / credential config (all optional)
     auth_type:            Optional[str]  = "none"
@@ -114,38 +129,91 @@ class BatchValidationRequest(BaseModel):
 
 def _run_scan(session_id: str, target: str, config: ScanConfig,
               scan_mode: str, requested_tests: list):
+    """
+    Runs in a FastAPI BackgroundTask.
+    Opens its own DB session (cannot share the request session across threads).
+    """
+    from database.connection import SessionLocal
+    db = SessionLocal()
+
     def _cb(sid, status):
         if sid in sessions:
             sessions[sid]["status"] = status
+
     try:
         result = Orchestrator(config=config).run(
-            target         = target,
-            session_id     = session_id,
-            scan_mode      = scan_mode,
-            requested_tests= requested_tests,
-            status_callback= _cb,
+            target          = target,
+            session_id      = session_id,
+            scan_mode       = scan_mode,
+            requested_tests = requested_tests,
+            status_callback = _cb,
+            db              = db,
         )
         sessions[session_id].update(result)
     except Exception as e:
         logger.error(f"[MAIN] Scan {session_id} failed: {e}", exc_info=True)
         sessions[session_id]["status"] = "error"
         sessions[session_id]["error"]  = str(e)
+        try:
+            crud.update_session_status(db, session_id, "error")
+        except Exception:
+            pass
+    finally:
+        db.close()
 
 
-# ── Scan routes ───────────────────────────────────────────────────────────────
+# ── Utility ────────────────────────────────────────────────────────────────────
+
+def _get_session_dict(session_id: str, db: Session) -> dict:
+    """
+    Return the session as a dict.
+    Priority: in-memory (active/recent) → DB (completed, survived restart).
+    """
+    if session_id in sessions:
+        return sessions[session_id]
+
+    db_obj = crud.get_session(db, session_id)
+    if not db_obj:
+        raise HTTPException(404, f"Session '{session_id}' not found")
+
+    # Rebuild dict + attach DB findings
+    s = crud.session_to_dict(db_obj)
+    db_findings = crud.get_findings(db, session_id)
+    s["enriched_findings"] = [crud.finding_to_dict(f) for f in db_findings]
+    return s
+
+
+# ── Core routes ───────────────────────────────────────────────────────────────
 
 @app.get("/")
-def root():
-    return {"agent":"AI VAPT Agent Platform","version":"3.0.0",
-            "status":"online","docs":"/docs",
-            "sessions":len(sessions),
-            "checklist_items": len(_ka.get_all_test_names())}
+def root(db: Session = Depends(get_db)):
+    db_count = db.query(crud.ScanSession).count()
+    return {
+        "agent":           "AI VAPT Agent Platform",
+        "version":         "4.0.0",
+        "status":          "online",
+        "docs":            "/docs",
+        "sessions_active": len(sessions),
+        "sessions_total":  db_count,
+        "checklist_items": len(_ka.get_all_test_names()),
+    }
 
 
 @app.get("/health")
-def health():
-    return {"status":"healthy","sessions_active":len(sessions)}
+def health(db: Session = Depends(get_db)):
+    try:
+        db.execute(crud.ScanSession.__table__.select().limit(1))
+        db_status = "ok"
+    except Exception as e:
+        db_status = f"error: {e}"
+    return {
+        "status":          "healthy",
+        "db":              db_status,
+        "sessions_active": len(sessions),
+    }
 
+
+# ── Scan routes ───────────────────────────────────────────────────────────────
 
 @app.post("/scan", status_code=202)
 def start_scan(req: ScanRequest, background_tasks: BackgroundTasks):
@@ -159,13 +227,18 @@ def start_scan(req: ScanRequest, background_tasks: BackgroundTasks):
         "scan_mode":         req.scan_mode,
         "requested_tests":   req.requested_tests,
         "status":            "queued",
-        "created_at":        datetime.utcnow().isoformat(),
+        "start_time":        datetime.utcnow().isoformat(),
+        "end_time":          None,
+        "duration_seconds":  None,
         "auth_used":         config.build_auth_summary(),
         "enriched_findings": [],
         "summary":           {},
         "execution_plan":    {},
+        "raw_results":       {},
+        "agents_executed":   [],
         "error":             None,
     }
+
     background_tasks.add_task(
         _run_scan, session_id, req.target, config,
         req.scan_mode, req.requested_tests
@@ -173,91 +246,117 @@ def start_scan(req: ScanRequest, background_tasks: BackgroundTasks):
     logger.info(f"[MAIN] Scan queued: {session_id} | {req.target} | "
                 f"mode={req.scan_mode} | tests={req.requested_tests}")
     return {
-        "session_id":    session_id,
-        "target":        req.target,
-        "scan_mode":     req.scan_mode,
+        "session_id":      session_id,
+        "target":          req.target,
+        "scan_mode":       req.scan_mode,
         "requested_tests": req.requested_tests,
-        "auth":          config.build_auth_summary(),
-        "message":       "Scan started. Poll /session/{id}/status.",
+        "auth":            config.build_auth_summary(),
+        "message":         "Scan started. Poll /session/{id}/status.",
     }
 
 
 @app.get("/sessions")
-def list_sessions():
-    return {"count": len(sessions), "sessions": [
-        {"session_id": sid, "target": s.get("target"),
-         "scan_mode": s.get("scan_mode"),
-         "status": s.get("status"),
-         "auth_used": s.get("auth_used",""),
-         "created_at": s.get("created_at"),
-         "total_findings": len(s.get("enriched_findings",[])),
-         "risk_rating": s.get("summary",{}).get("risk_rating","-")}
-        for sid, s in sessions.items()
-    ]}
+def list_sessions(
+    limit:  int = Query(50, ge=1, le=500),
+    offset: int = Query(0,  ge=0),
+    db: Session = Depends(get_db),
+):
+    """List all sessions — reads from DB (survives restarts)."""
+    db_sessions = crud.list_sessions(db, limit=limit, offset=offset)
+    total = db.query(crud.ScanSession).count()
+    rows = []
+    for obj in db_sessions:
+        # Overlay in-memory status if scan is still active
+        mem = sessions.get(obj.id, {})
+        rows.append({
+            "session_id":     obj.id,
+            "target":         obj.target,
+            "scan_mode":      obj.scan_mode,
+            "status":         mem.get("status", obj.status),
+            "auth_used":      obj.auth_used or "",
+            "start_time":     obj.start_time.isoformat() if obj.start_time else None,
+            "end_time":       obj.end_time.isoformat()   if obj.end_time   else None,
+            "duration_seconds": obj.duration_seconds,
+            "total_findings": len(mem.get("enriched_findings", [])) or
+                              (obj.summary or {}).get("total_findings", 0),
+            "risk_rating":    (obj.summary or {}).get("risk_rating", "-"),
+        })
+    return {"total": total, "count": len(rows), "offset": offset, "sessions": rows}
 
 
 @app.get("/session/{session_id}")
-def get_session(session_id: str):
-    if session_id not in sessions:
-        raise HTTPException(404, f"Session '{session_id}' not found")
-    return sessions[session_id]
+def get_session(session_id: str, db: Session = Depends(get_db)):
+    return _get_session_dict(session_id, db)
 
 
 @app.get("/session/{session_id}/status")
-def get_status(session_id: str):
-    if session_id not in sessions:
-        raise HTTPException(404, "Session not found")
-    s = sessions[session_id]
-    return {"session_id":session_id,"status":s.get("status"),
-            "total_findings":len(s.get("enriched_findings",[])),
-            "summary":s.get("summary",{}),"error":s.get("error")}
+def get_status(session_id: str, db: Session = Depends(get_db)):
+    s = _get_session_dict(session_id, db)
+    return {
+        "session_id":     session_id,
+        "status":         s.get("status"),
+        "total_findings": len(s.get("enriched_findings", [])),
+        "summary":        s.get("summary", {}),
+        "error":          s.get("error"),
+    }
 
 
 @app.get("/session/{session_id}/plan")
-def get_execution_plan(session_id: str):
-    """See what the Knowledge Agent resolved for this session."""
-    if session_id not in sessions:
-        raise HTTPException(404, "Session not found")
-    return sessions[session_id].get("execution_plan", {})
+def get_execution_plan(session_id: str, db: Session = Depends(get_db)):
+    """Show what the Knowledge Agent resolved for this session."""
+    return _get_session_dict(session_id, db).get("execution_plan", {})
 
 
 @app.get("/session/{session_id}/findings")
-def get_findings(session_id: str,
-                 severity: Optional[str] = Query(None),
-                 validated: Optional[bool] = Query(None),
-                 module: Optional[str] = Query(None),
-                 checklist_id: Optional[str] = Query(None)):
-    if session_id not in sessions:
-        raise HTTPException(404, "Session not found")
-    findings = sessions[session_id].get("enriched_findings",[])
-    if severity:     findings = [f for f in findings if f.get("severity","").lower() == severity.lower()]
-    if module:       findings = [f for f in findings if f.get("module","").lower() == module.lower()]
-    if checklist_id: findings = [f for f in findings if f.get("checklist_id") == checklist_id]
+def get_findings(
+    session_id:   str,
+    severity:     Optional[str]  = Query(None),
+    validated:    Optional[bool] = Query(None),
+    module:       Optional[str]  = Query(None),
+    checklist_id: Optional[str]  = Query(None),
+    min_confidence: Optional[float] = Query(None, ge=0.0, le=1.0),
+    db: Session = Depends(get_db),
+):
+    s        = _get_session_dict(session_id, db)
+    findings = s.get("enriched_findings", [])
+
+    if severity:
+        findings = [f for f in findings
+                    if f.get("severity", "").lower() == severity.lower()]
+    if module:
+        findings = [f for f in findings
+                    if f.get("module", "").lower() == module.lower()]
+    if checklist_id:
+        findings = [f for f in findings
+                    if f.get("checklist_id") == checklist_id]
     if validated is not None:
-        findings = [f for f in findings if f.get("validation_status") == ("approve" if validated else "pending")]
-    return {"count":len(findings),"findings":findings}
+        want = "approve" if validated else "pending"
+        findings = [f for f in findings if f.get("validation_status") == want]
+    if min_confidence is not None:
+        findings = [f for f in findings
+                    if (f.get("confidence_score") or 0) >= min_confidence]
+
+    return {"count": len(findings), "findings": findings}
 
 
 @app.delete("/session/{session_id}")
-def delete_session(session_id: str):
-    if session_id not in sessions:
-        raise HTTPException(404, "Session not found")
-    del sessions[session_id]
-    return {"message":f"Session {session_id} deleted"}
+def delete_session(session_id: str, db: Session = Depends(get_db)):
+    if session_id in sessions:
+        del sessions[session_id]
+    db_obj = crud.get_session(db, session_id)
+    if db_obj:
+        db.delete(db_obj)
+        db.commit()
+        return {"message": f"Session {session_id} deleted from memory and DB"}
+    return {"message": f"Session {session_id} removed from memory (not in DB)"}
 
 
-# ── Checklist routes ──────────────────────────────────────────────────────────
+# ── Checklist routes ───────────────────────────────────────────────────────────
 
 @app.get("/checklist")
 def list_checklist(domain: Optional[str] = Query(None)):
-    """
-    List all available tests from the registry.
-    Optionally filter by domain: web | network | cloud
-    """
-    if domain:
-        names = _ka.get_tests_by_domain(domain)
-    else:
-        names = _ka.get_all_test_names()
+    """List all available tests. Filter by domain: web | network | cloud"""
+    names = _ka.get_tests_by_domain(domain) if domain else _ka.get_all_test_names()
     return {"count": len(names), "tests": names}
 
 
@@ -279,85 +378,180 @@ def get_checklist_item(item_id: str):
 
 @app.post("/checklist/preview")
 def preview_execution_plan(
-    target: str = Query(...),
-    scan_mode: str = Query("full"),
-    requested_tests: list[str] = Query(default=[])
+    target:          str       = Query(...),
+    scan_mode:       str       = Query("full"),
+    requested_tests: list[str] = Query(default=[]),
 ):
-    """
-    Preview what the Knowledge Agent would resolve without running a scan.
-    Useful for UI to show users what will be tested before they launch.
-    """
+    """Preview the Knowledge Agent's resolution without running a scan."""
     plan = _ka.resolve(target=target, mode=scan_mode,
                        requested_tests=requested_tests if requested_tests else None)
     return {
-        "scan_mode":    plan.scan_mode,
-        "tests_resolved": len(plan.resolved_tests),
-        "fallback_used": plan.fallback_used,
-        "resolution_log": plan.resolution_log,
+        "scan_mode":       plan.scan_mode,
+        "tests_resolved":  len(plan.resolved_tests),
+        "fallback_used":   plan.fallback_used,
+        "resolution_log":  plan.resolution_log,
         "agent_groups": {
             agent: [{"id": t.checklist_id, "name": t.canonical_name,
                      "source": t.source, "fallback": t.fallback}
                     for t in tests]
             for agent, tests in plan.agent_groups.items()
-        }
+        },
     }
 
 
 # ── Validation routes ─────────────────────────────────────────────────────────
 
 @app.post("/validate/{session_id}")
-def validate(session_id: str, req: ValidationRequest):
-    if session_id not in sessions:
-        raise HTTPException(404, "Session not found")
-    findings = sessions[session_id].get("enriched_findings",[])
+def validate(session_id: str, req: ValidationRequest,
+             db: Session = Depends(get_db)):
+    s = _get_session_dict(session_id, db)
+
+    # Find in memory first (fast path), then build from DB
+    findings = s.get("enriched_findings", [])
     finding  = next((f for f in findings if f.get("id") == req.finding_id), None)
+
     if not finding:
-        raise HTTPException(404, f"Finding '{req.finding_id}' not found")
+        # Try loading directly from DB
+        db_f = db.query(crud.ScanFinding).filter(
+            crud.ScanFinding.id == req.finding_id
+        ).first()
+        if not db_f:
+            raise HTTPException(404, f"Finding '{req.finding_id}' not found")
+        finding = crud.finding_to_dict(db_f)
+        finding["session_id"] = session_id
+
     try:
-        validate_finding(finding, req.action, req.validator_name, req.notes)
+        validate_finding(finding, req.action, req.validator_name,
+                         notes=req.notes, db=db)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return {"message":"Validation applied","finding_id":req.finding_id,"action":req.action}
+
+    # Update in-memory copy if present
+    if session_id in sessions:
+        for f in sessions[session_id].get("enriched_findings", []):
+            if f.get("id") == req.finding_id:
+                f.update(finding)
+                break
+
+    return {
+        "message":    "Validation applied",
+        "finding_id": req.finding_id,
+        "action":     req.action,
+        "persisted":  True,
+    }
 
 
 @app.post("/validate/{session_id}/batch")
-def batch_validate(session_id: str, req: BatchValidationRequest):
-    if session_id not in sessions:
-        raise HTTPException(404, "Session not found")
-    findings = sessions[session_id].get("enriched_findings",[])
+def batch_validate(session_id: str, req: BatchValidationRequest,
+                   db: Session = Depends(get_db)):
+    s        = _get_session_dict(session_id, db)
+    findings = s.get("enriched_findings", [])
     updated  = validate_batch(findings, req.approved_ids,
-                               req.rejected_ids, req.validator_name)
-    return {"message":"Batch validation complete","stats":get_validation_stats(updated)}
+                               req.rejected_ids, req.validator_name, db=db)
+
+    # Sync back to in-memory if active
+    if session_id in sessions:
+        sessions[session_id]["enriched_findings"] = updated
+
+    return {
+        "message": "Batch validation complete",
+        "stats":   get_validation_stats(updated),
+    }
+
+
+@app.get("/session/{session_id}/feedback")
+def get_feedback(session_id: str, db: Session = Depends(get_db)):
+    """Return the full analyst feedback audit trail for a session."""
+    _get_session_dict(session_id, db)   # verify session exists
+    rows = crud.get_feedback(db, session_id)
+    return {
+        "session_id": session_id,
+        "count":      len(rows),
+        "feedback": [
+            {
+                "id":             r.id,
+                "finding_id":     r.finding_id,
+                "action":         r.action,
+                "validator_name": r.validator_name,
+                "notes":          r.notes,
+                "created_at":     r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
 
 
 # ── Report routes ─────────────────────────────────────────────────────────────
 
 @app.get("/report/{session_id}")
-def get_report(session_id: str,
-               format: str = Query("json", pattern="^(json|html|pdf|csv|all|both)$")):
-    if session_id not in sessions:
-        raise HTTPException(404, "Session not found")
-    s = sessions[session_id]
-    if s.get("status") not in ("awaiting_validation","completed","error"):
+def get_report(
+    session_id: str,
+    format: str = Query("json", pattern="^(json|html|pdf|csv|all|both)$"),
+    db: Session = Depends(get_db),
+):
+    s = _get_session_dict(session_id, db)
+    if s.get("status") not in ("awaiting_validation", "completed", "error"):
         raise HTTPException(400, f"Scan not complete. Status: {s.get('status')}")
+
     paths = generate_report(s, format=format)
-    return {"message":"Report generated","format":format,"files":paths}
+
+    # Persist generated report paths to DB
+    for path in paths:
+        ext = path.rsplit(".", 1)[-1]
+        try:
+            crud.save_report(db, session_id, ext, path)
+        except Exception:
+            pass
+
+    return {"message": "Report generated", "format": format, "files": paths}
 
 
 @app.get("/report/{session_id}/download")
-def download_report(session_id: str,
-                    format: str = Query("html", pattern="^(json|html|pdf|csv)$")):
-    if session_id not in sessions:
-        raise HTTPException(404, "Session not found")
-    s = sessions[session_id]
-    if s.get("status") not in ("awaiting_validation","completed","error"):
+def download_report(
+    session_id: str,
+    format: str = Query("html", pattern="^(json|html|pdf|csv)$"),
+    db: Session = Depends(get_db),
+):
+    s = _get_session_dict(session_id, db)
+    if s.get("status") not in ("awaiting_validation", "completed", "error"):
         raise HTTPException(400, "Scan not complete yet")
+
     paths = generate_report(s, format=format)
     if not paths:
         raise HTTPException(500, "Report generation failed")
-    path       = paths[0]
-    ext        = path.split(".")[-1]
-    mime_types = {"json":"application/json","html":"text/html",
-                  "pdf":"application/pdf","csv":"text/csv"}
-    return FileResponse(path, media_type=mime_types.get(ext,"application/octet-stream"),
-                        filename=f"vapt_report_{session_id}.{ext}")
+
+    path  = paths[0]
+    ext   = path.rsplit(".", 1)[-1]
+    mime  = {"json": "application/json", "html": "text/html",
+             "pdf":  "application/pdf",  "csv":  "text/csv"}
+
+    try:
+        crud.save_report(db, session_id, ext, path)
+    except Exception:
+        pass
+
+    return FileResponse(
+        path,
+        media_type=mime.get(ext, "application/octet-stream"),
+        filename=f"vapt_report_{session_id}.{ext}",
+    )
+
+
+@app.get("/session/{session_id}/reports")
+def list_reports(session_id: str, db: Session = Depends(get_db)):
+    """List all generated report files for a session."""
+    _get_session_dict(session_id, db)
+    rows = crud.get_reports(db, session_id)
+    return {
+        "session_id": session_id,
+        "count":      len(rows),
+        "reports": [
+            {
+                "id":        r.id,
+                "format":    r.format,
+                "file_path": r.file_path,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }

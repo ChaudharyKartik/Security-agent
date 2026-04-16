@@ -132,51 +132,62 @@ def _detect_technologies(http_info: dict) -> list:
 def _recon_findings(open_ports: list, http_info: dict, host_type: str) -> list:
     findings = []
     headers  = {k.lower(): v for k, v in http_info.get("headers", {}).items()}
-    risky    = {21:"FTP",23:"Telnet",25:"SMTP",110:"POP3",143:"IMAP",
-                3389:"RDP",5432:"PostgreSQL",6379:"Redis",9200:"Elasticsearch",27017:"MongoDB"}
+    risky    = {21:"FTP", 23:"Telnet", 25:"SMTP", 110:"POP3", 143:"IMAP",
+                3389:"RDP", 5432:"PostgreSQL", 6379:"Redis",
+                9200:"Elasticsearch", 27017:"MongoDB"}
 
     for p in open_ports:
         if p["port"] in risky:
+            poc_target = http_info.get("raw_request", "target")
             findings.append({
                 "name":        f"Exposed {risky[p['port']]} Service",
                 "type":        "open_port",
                 "risk":        "Medium",
                 "port":        p["port"],
                 "service":     p["service"],
+                "url":         f"{poc_target.split()[2].strip('"')}:{p['port']}" if poc_target else str(p["port"]),
                 "description": f"Port {p['port']} ({risky[p['port']]}) is publicly reachable.",
                 "solution":    f"Restrict port {p['port']} to trusted IPs only.",
                 "evidence": {
-                    "curl_poc":  f'nc -zv {http_info.get("raw_request","target")} {p["port"]}',
-                    "type":      "port_open",
+                    "curl_poc": f'nc -zv {poc_target} {p["port"]}',
+                    "type":     "port_open",
                 },
             })
 
+    base_url = http_info.get("raw_request", "").split()[-1].strip('"') if http_info.get("raw_request") else ""
+
     if http_info.get("status_code") and not http_info.get("https"):
         findings.append({
-            "name": "Unencrypted HTTP Detected", "type": "ssl_error", "risk": "Medium",
+            "name":        "Unencrypted HTTP Detected",
+            "type":        "ssl_error",
+            "risk":        "Medium",
+            "url":         base_url,
             "description": "Application accessible over plain HTTP.",
             "solution":    "Force HTTPS redirect and enable HSTS.",
-            "evidence": {"curl_poc": http_info.get("raw_request", ""), "type": "http_plain"},
+            "evidence":    {"curl_poc": http_info.get("raw_request", ""), "type": "http_plain"},
         })
 
     sec_headers = {
-        "strict-transport-security": ("HSTS Missing",                 "Medium"),
-        "content-security-policy":   ("Content-Security-Policy Missing","Medium"),
-        "x-frame-options":           ("Clickjacking Protection Missing","Low"),
-        "x-content-type-options":    ("MIME Sniffing Protection Missing","Low"),
-        "referrer-policy":           ("Referrer Policy Missing",        "Low"),
+        "strict-transport-security": ("HSTS Missing",                  "Medium"),
+        "content-security-policy":   ("Content-Security-Policy Missing", "Medium"),
+        "x-frame-options":           ("Clickjacking Protection Missing", "Low"),
+        "x-content-type-options":    ("MIME Sniffing Protection Missing", "Low"),
+        "referrer-policy":           ("Referrer Policy Missing",          "Low"),
     }
     if http_info.get("status_code"):
         for h, (name, risk) in sec_headers.items():
             if h not in headers:
                 findings.append({
-                    "name": name, "type": "missing_security_header", "risk": risk,
+                    "name":        name,
+                    "type":        "missing_security_header",
+                    "risk":        risk,
+                    "url":         base_url,
                     "description": f"Response missing '{h}' security header.",
                     "solution":    f"Add '{h}' header at web server or middleware level.",
                     "evidence": {
-                        "curl_poc":       http_info.get("raw_request", ""),
-                        "response_headers": http_info.get("raw_response_headers", ""),
-                        "type":           "missing_header",
+                        "curl_poc":           http_info.get("raw_request", ""),
+                        "response_headers":   http_info.get("raw_response_headers", ""),
+                        "type":               "missing_header",
                     },
                 })
     return findings
