@@ -24,7 +24,7 @@ MOCK_HOSTS = [{
 }]
 
 
-def run_network_scan(target: str, recon_data: dict, config=None) -> dict:
+def run_network_scan(target: str, recon_data: dict, config=None, checklist_items=None) -> dict:
     logger.info(f"[NETWORK] Starting network scan: {target}")
     start = datetime.utcnow()
     host  = recon_data.get("ip_address") or recon_data.get("hostname") or target
@@ -100,14 +100,16 @@ def _analyse_host(host_info: dict, target: str) -> list:
             "type":     "open_port",
             "risk":     _port_risk(port, service),
             "port":     port, "service": service,
-            "product":  product, "version": version, "host": ip,
+            "product":  product, "version": version,
+            "host":     ip,
+            "url":      f"{ip}:{port}",   # schema: consistent url field across all modules
             "description": (f"Port {port}/{service} is open"
                             + (f" running {product} {version}".rstrip() if product else "") + "."),
             "solution": _port_solution(port, service),
             "evidence": {
-                "type":    "port_open",
+                "type":     "port_open",
                 "curl_poc": poc_curl,
-                "banner":  f"{product} {version}".strip(),
+                "banner":   f"{product} {version}".strip(),
                 "nmap_cmd": f"nmap -sV -p {port} {ip}",
             },
         })

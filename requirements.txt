@@ -11,3 +11,8 @@ python-nmap==0.7.1
 
 # Report formats
 fpdf2==2.7.9
+
+# Database — SQLAlchemy ORM (SQLite default, PostgreSQL-ready via DATABASE_URL)
+sqlalchemy==2.0.30
+aiosqlite==0.20.0
+alembic==1.13.1

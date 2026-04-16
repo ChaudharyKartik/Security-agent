@@ -29,7 +29,7 @@ SECURITY_HEADERS = {
 }
 
 
-def run_web_scan(target: str, config=None) -> dict:
+def run_web_scan(target: str, config=None, checklist_items=None) -> dict:
     logger.info(f"[WEB] Starting web scan: {target}")
     start    = datetime.utcnow()
     url      = target if target.startswith("http") else f"http://{target}"
@@ -68,13 +68,19 @@ def _try_zap_scan(url: str, base: str, key: str, config) -> list | None:
         if config and config.auth_type != "none":
             _configure_zap_auth(base, key, url, config)
 
-        httpx.get(f"{base}/JSON/spider/action/scan/",
-                  params={"apikey": key, "url": url, "maxChildren": 10}, timeout=10)
-        _zap_wait("spider", base, key, url)
+        # BUG FIX #3: Capture the scan ID from spider/ascan action responses.
+        # Previously the scan ID was ignored and the URL was passed to _zap_wait(),
+        # but ZAP's status endpoints expect a scanId, not a URL — so status was
+        # always 0 and _zap_wait() would spin for the full timeout (180s) doing nothing.
+        spider_r = httpx.get(f"{base}/JSON/spider/action/scan/",
+                             params={"apikey": key, "url": url, "maxChildren": 10}, timeout=10)
+        spider_id = spider_r.json().get("scan", "0")
+        _zap_wait("spider", base, key, scan_id=spider_id)
 
-        httpx.get(f"{base}/JSON/ascan/action/scan/",
-                  params={"apikey": key, "url": url, "recurse": "true"}, timeout=10)
-        _zap_wait("ascan", base, key, url)
+        ascan_r = httpx.get(f"{base}/JSON/ascan/action/scan/",
+                            params={"apikey": key, "url": url, "recurse": "true"}, timeout=10)
+        ascan_id = ascan_r.json().get("scan", "0")
+        _zap_wait("ascan", base, key, scan_id=ascan_id)
 
         alerts_r = httpx.get(f"{base}/JSON/core/view/alerts/",
                              params={"apikey": key, "baseurl": url}, timeout=10)
@@ -109,12 +115,15 @@ def _configure_zap_auth(base: str, key: str, url: str, config):
         logger.warning(f"[WEB] ZAP auth config failed: {e}")
 
 
-def _zap_wait(task: str, base: str, key: str, url: str, timeout: int = 180):
+def _zap_wait(task: str, base: str, key: str, scan_id: str = "0", timeout: int = 180):
+    # BUG FIX #3 (continued): Poll ZAP status by scanId (not URL). The ZAP API's
+    # spider/view/status and ascan/view/status endpoints return progress for a
+    # specific scan identified by its integer scan ID, not the target URL.
     ep = {"spider": f"{base}/JSON/spider/view/status/",
           "ascan":  f"{base}/JSON/ascan/view/status/"}
     for _ in range(timeout // 3):
         try:
-            r = httpx.get(ep[task], params={"apikey": key, "url": url}, timeout=5)
+            r = httpx.get(ep[task], params={"apikey": key, "scanId": scan_id}, timeout=5)
             if int(r.json().get("status", 0)) >= 100:
                 return
         except Exception:
@@ -237,36 +246,50 @@ def _check_security_headers(headers: dict, url: str, req_str: str, resp) -> list
 
 def _check_cookies(resp, headers: dict, url: str, req_str: str) -> list:
     findings = []
-    raw = headers.get("set-cookie","").lower()
-    if not raw:
+    # Collect ALL Set-Cookie header values (not just the first).
+    # `headers.get("set-cookie")` only returns the first value when a response
+    # sets multiple cookies — session cookies that aren't first would be missed.
+    all_set_cookie = [v for k, v in resp.headers.items() if k.lower() == "set-cookie"]
+    if not all_set_cookie:
         return findings
 
-    sensitive = any(k in raw for k in ("session","auth","token","jwt","sid","csrf"))
-    if not sensitive:
-        return findings
+    sensitive_keywords = ("session", "auth", "token", "jwt", "sid", "csrf")
 
-    checks = [
-        ("httponly" not in raw,  "Session Cookie Missing HttpOnly Flag", "High",
-         "Session cookie accessible via JavaScript — XSS can steal it.",
-         "Set HttpOnly flag on all session cookies."),
-        ("secure"   not in raw,  "Session Cookie Missing Secure Flag",   "Medium",
-         "Cookie transmitted over plain HTTP — interception risk.",
-         "Set Secure flag on all session cookies."),
-        ("samesite" not in raw,  "Session Cookie Missing SameSite",      "Medium",
-         "No SameSite attribute — CSRF attacks possible.",
-         "Add SameSite=Strict or Lax to session cookies."),
-    ]
-    for condition, name, risk, desc, sol in checks:
-        if condition:
-            findings.append({
-                "name": name, "type": "insecure_cookie", "risk": risk, "url": url,
-                "description": desc, "solution": sol,
-                "evidence": {
-                    "type":       "insecure_cookie",
-                    "curl_poc":   req_str,
-                    "set_cookie": headers.get("set-cookie","")[:300],
-                },
-            })
+    # Evaluate each cookie individually so a flag present on one cookie cannot
+    # mask a missing flag on a different sensitive cookie in the same response.
+    for cookie_str in all_set_cookie:
+        cookie_lower = cookie_str.lower()
+        if not any(k in cookie_lower for k in sensitive_keywords):
+            continue  # not a session/auth cookie — skip
+
+        has_httponly = "httponly" in cookie_lower
+        # Use regex so "secure" appearing inside a cookie *value* (e.g.
+        # "secure_token=abc") does not give a false-negative on the Secure flag.
+        has_secure   = bool(re.search(r'(;|\s)secure(\s*;|$)', cookie_lower))
+        has_samesite = "samesite" in cookie_lower
+
+        checks = [
+            (not has_httponly, "Session Cookie Missing HttpOnly Flag", "High",
+             "Session cookie accessible via JavaScript — XSS can steal it.",
+             "Set HttpOnly flag on all session cookies."),
+            (not has_secure,   "Session Cookie Missing Secure Flag",   "Medium",
+             "Cookie transmitted over plain HTTP — interception risk.",
+             "Set Secure flag on all session cookies."),
+            (not has_samesite, "Session Cookie Missing SameSite",      "Medium",
+             "No SameSite attribute — CSRF attacks possible.",
+             "Add SameSite=Strict or Lax to session cookies."),
+        ]
+        for condition, name, risk, desc, sol in checks:
+            if condition:
+                findings.append({
+                    "name": name, "type": "insecure_cookie", "risk": risk, "url": url,
+                    "description": desc, "solution": sol,
+                    "evidence": {
+                        "type":       "insecure_cookie",
+                        "curl_poc":   req_str,
+                        "set_cookie": cookie_str[:300],
+                    },
+                })
     return findings
 
 
@@ -404,6 +427,27 @@ def _check_sensitive_paths(base_url: str, headers: dict) -> list:
                         "curl_poc":         f'curl -sk -i "{url}"',
                         "status_code":      r.status_code,
                         "response_snippet": r.text[:300],
+                    },
+                })
+            # BUG FIX #5: 401/403 also confirms the path exists (server knows
+            # about it but is protecting it) — flag as a lower-severity finding
+            # so analysts can manually verify whether access controls are sufficient.
+            elif r.status_code in (401, 403):
+                findings.append({
+                    "name": f"{name} (Access Restricted — Path Exists)",
+                    "type": "information_disclosure",
+                    "risk": "Low",
+                    "url": url,
+                    "description": (
+                        f"{desc} The server returned HTTP {r.status_code}, confirming "
+                        f"the path exists but is currently access-controlled. "
+                        f"Verify controls are sufficient and the path should not be public."
+                    ),
+                    "solution": f"Confirm {path} is intentionally protected and cannot be bypassed.",
+                    "evidence": {
+                        "type":        "sensitive_path_restricted",
+                        "curl_poc":    f'curl -sk -i "{url}"',
+                        "status_code": r.status_code,
                     },
                 })
         except httpx.RequestError:

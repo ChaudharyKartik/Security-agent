@@ -1,0 +1,575 @@
+{
+  "version": "1.0",
+  "description": "Canonical VAPT checklist registry. Every test the platform can run is defined here. canonical_name is law — it appears verbatim in reports.",
+  "items": [
+
+    {
+      "id": "WEB-001",
+      "canonical_name": "Reflected Cross-Site Scripting (XSS)",
+      "category": "injection",
+      "domain": "web",
+      "source": "internal",
+      "owasp_ref": "A03:2021",
+      "cwe": "CWE-79",
+      "severity_default": "Medium",
+      "agent": "web_agent",
+      "tools": ["zap", "nuclei"],
+      "aliases": ["reflected xss", "xss reflected", "rxss"],
+      "preconditions": ["input_fields_present", "no_strict_output_encoding"],
+      "test_strategy": {
+        "recon_required": true,
+        "auth_required": false,
+        "input_discovery": true
+      },
+      "test_steps": [
+        "Identify all input parameters (GET, POST, headers, cookies)",
+        "Inject standard XSS payloads: <script>alert(1)</script>",
+        "Check if payload is reflected in response without encoding",
+        "Test in different contexts: HTML body, attribute, JS, URL"
+      ],
+      "expected_evidence": ["payload_reflected", "unsanitized_output", "alert_executed"],
+      "evidence_requirements": {
+        "request": true, "response": true, "payload": true, "screenshot": false
+      },
+      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
+    },
+
+    {
+      "id": "WEB-002",
+      "canonical_name": "Stored Cross-Site Scripting (XSS)",
+      "category": "injection",
+      "domain": "web",
+      "source": "internal",
+      "owasp_ref": "A03:2021",
+      "cwe": "CWE-79",
+      "severity_default": "High",
+      "agent": "web_agent",
+      "tools": ["zap", "nuclei"],
+      "aliases": ["stored xss", "persistent xss"],
+      "preconditions": ["input_fields_present", "data_persistence"],
+      "test_strategy": {
+        "recon_required": true,
+        "auth_required": false,
+        "input_discovery": true
+      },
+      "test_steps": [
+        "Find fields that store and re-display user input (comments, profiles, etc.)",
+        "Inject XSS payload into stored field",
+        "Navigate to the page that renders stored data",
+        "Verify payload executes on render"
+      ],
+      "expected_evidence": ["payload_stored", "payload_executed_on_render"],
+      "evidence_requirements": {
+        "request": true, "response": true, "payload": true, "screenshot": false
+      },
+      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
+    },
+
+    {
+      "id": "WEB-003",
+      "canonical_name": "SQL Injection",
+      "category": "injection",
+      "domain": "web",
+      "source": "internal",
+      "owasp_ref": "A03:2021",
+      "cwe": "CWE-89",
+      "severity_default": "Critical",
+      "agent": "web_agent",
+      "tools": ["sqlmap", "zap"],
+      "aliases": ["sqli", "sql injection", "blind sqli", "error-based sqli"],
+      "preconditions": ["database_backend", "user_input_to_query"],
+      "test_strategy": {
+        "recon_required": true,
+        "auth_required": false,
+        "input_discovery": true
+      },
+      "test_steps": [
+        "Identify parameters sent to backend queries",
+        "Test with ' and \" to trigger SQL errors",
+        "Use boolean-based payloads: ' AND 1=1-- vs ' AND 1=2--",
+        "Test time-based blind: ' AND SLEEP(5)--",
+        "Use sqlmap for automated extraction if manual confirms"
+      ],
+      "expected_evidence": ["sql_error_message", "boolean_difference", "time_delay", "data_extracted"],
+      "evidence_requirements": {
+        "request": true, "response": true, "payload": true, "screenshot": false
+      },
+      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"
+    },
+
+    {
+      "id": "WEB-004",
+      "canonical_name": "Cross-Site Request Forgery (CSRF)",
+      "category": "session",
+      "domain": "web",
+      "source": "internal",
+      "owasp_ref": "A01:2021",
+      "cwe": "CWE-352",
+      "severity_default": "Medium",
+      "agent": "web_agent",
+      "tools": ["zap", "manual"],
+      "aliases": ["csrf", "xsrf"],
+      "preconditions": ["authenticated_session", "state_changing_requests"],
+      "test_strategy": {
+        "recon_required": true,
+        "auth_required": true,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "Identify state-changing requests (POST, PUT, DELETE)",
+        "Check for CSRF token in request",
+        "Craft HTML form that submits request cross-origin",
+        "Verify if request succeeds without valid CSRF token"
+      ],
+      "expected_evidence": ["missing_csrf_token", "cross_origin_request_accepted"],
+      "evidence_requirements": {
+        "request": true, "response": true, "payload": true, "screenshot": false
+      },
+      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"
+    },
+
+    {
+      "id": "WEB-005",
+      "canonical_name": "Insecure Direct Object Reference (IDOR)",
+      "category": "access_control",
+      "domain": "web",
+      "source": "internal",
+      "owasp_ref": "A01:2021",
+      "cwe": "CWE-284",
+      "severity_default": "High",
+      "agent": "web_agent",
+      "tools": ["burp", "manual"],
+      "aliases": ["idor", "broken object level authorization", "bola"],
+      "preconditions": ["authenticated_session", "object_ids_in_requests"],
+      "test_strategy": {
+        "recon_required": true,
+        "auth_required": true,
+        "input_discovery": true
+      },
+      "test_steps": [
+        "Identify endpoints that take object IDs (user_id, order_id, file_id)",
+        "Authenticate as User A, note object IDs",
+        "Authenticate as User B, attempt to access User A objects",
+        "Verify if authorization is enforced at object level"
+      ],
+      "expected_evidence": ["unauthorized_object_access", "cross_user_data_visible"],
+      "evidence_requirements": {
+        "request": true, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html"
+    },
+
+    {
+      "id": "WEB-006",
+      "canonical_name": "Session Fixation",
+      "category": "session",
+      "domain": "web",
+      "source": "internal",
+      "owasp_ref": "A07:2021",
+      "cwe": "CWE-384",
+      "severity_default": "High",
+      "agent": "web_agent",
+      "tools": ["zap", "manual"],
+      "aliases": ["session fixation"],
+      "preconditions": ["session_management"],
+      "test_strategy": {
+        "recon_required": false,
+        "auth_required": true,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "Obtain a pre-authentication session token",
+        "Authenticate using that token",
+        "Check if the session token changes after login",
+        "If token is same before/after — session fixation confirmed"
+      ],
+      "expected_evidence": ["session_token_unchanged_after_login"],
+      "evidence_requirements": {
+        "request": true, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://owasp.org/www-community/attacks/Session_fixation"
+    },
+
+    {
+      "id": "WEB-007",
+      "canonical_name": "Missing Security Headers",
+      "category": "configuration",
+      "domain": "web",
+      "source": "internal",
+      "owasp_ref": "A05:2021",
+      "cwe": "CWE-693",
+      "severity_default": "Low",
+      "agent": "web_agent",
+      "tools": ["httpx", "zap"],
+      "aliases": ["missing headers", "security headers", "hsts missing", "csp missing"],
+      "preconditions": ["http_accessible"],
+      "test_strategy": {
+        "recon_required": false,
+        "auth_required": false,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "Send HTTP GET to target",
+        "Inspect response headers",
+        "Check for: Strict-Transport-Security, Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy"
+      ],
+      "expected_evidence": ["missing_header_name", "response_headers_block"],
+      "evidence_requirements": {
+        "request": true, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://owasp.org/www-project-secure-headers/"
+    },
+
+    {
+      "id": "WEB-008",
+      "canonical_name": "Sensitive File Exposure",
+      "category": "information_disclosure",
+      "domain": "web",
+      "source": "internal",
+      "owasp_ref": "A05:2021",
+      "cwe": "CWE-538",
+      "severity_default": "Critical",
+      "agent": "web_agent",
+      "tools": ["httpx", "nuclei"],
+      "aliases": [".env exposed", ".git exposed", "backup file exposed", "aws credentials exposed"],
+      "preconditions": ["http_accessible"],
+      "test_strategy": {
+        "recon_required": false,
+        "auth_required": false,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "Probe common sensitive paths: /.env, /.git/HEAD, /backup.zip, /.aws/credentials",
+        "Check response status code and body for sensitive content",
+        "Verify content is genuine (not a honeypot or redirect)"
+      ],
+      "expected_evidence": ["http_200_on_sensitive_path", "secrets_in_response"],
+      "evidence_requirements": {
+        "request": true, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information"
+    },
+
+    {
+      "id": "WEB-009",
+      "canonical_name": "Insecure Cookie Configuration",
+      "category": "session",
+      "domain": "web",
+      "source": "internal",
+      "owasp_ref": "A02:2021",
+      "cwe": "CWE-614",
+      "severity_default": "Medium",
+      "agent": "web_agent",
+      "tools": ["httpx", "zap"],
+      "aliases": ["insecure cookies", "missing httponly", "missing secure flag", "missing samesite"],
+      "preconditions": ["http_accessible", "session_cookies_present"],
+      "test_strategy": {
+        "recon_required": false,
+        "auth_required": false,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "Capture Set-Cookie response headers",
+        "Check for HttpOnly flag absence",
+        "Check for Secure flag absence",
+        "Check for SameSite attribute absence",
+        "Identify if affected cookie is a session/auth token"
+      ],
+      "expected_evidence": ["missing_httponly", "missing_secure", "missing_samesite", "cookie_value"],
+      "evidence_requirements": {
+        "request": true, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://owasp.org/www-community/controls/SecureCookieAttribute"
+    },
+
+    {
+      "id": "WEB-010",
+      "canonical_name": "Server-Side Request Forgery (SSRF)",
+      "category": "injection",
+      "domain": "web",
+      "source": "owasp_wstg",
+      "owasp_ref": "A10:2021",
+      "cwe": "CWE-918",
+      "severity_default": "High",
+      "agent": "web_agent",
+      "tools": ["zap", "manual"],
+      "aliases": ["ssrf", "server side request forgery"],
+      "preconditions": ["url_parameters_present", "server_makes_outbound_requests"],
+      "test_strategy": {
+        "recon_required": true,
+        "auth_required": false,
+        "input_discovery": true
+      },
+      "test_steps": [
+        "Identify parameters that accept URLs or file paths",
+        "Inject internal addresses: http://127.0.0.1, http://169.254.169.254/latest/meta-data/",
+        "Check if server fetches and returns internal content",
+        "Test cloud metadata endpoints if applicable"
+      ],
+      "expected_evidence": ["internal_content_returned", "metadata_api_response"],
+      "evidence_requirements": {
+        "request": true, "response": true, "payload": true, "screenshot": false
+      },
+      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+    },
+
+    {
+      "id": "NET-001",
+      "canonical_name": "Exposed High-Risk Network Service",
+      "category": "exposure",
+      "domain": "network",
+      "source": "internal",
+      "owasp_ref": null,
+      "cwe": "CWE-16",
+      "severity_default": "High",
+      "agent": "network_agent",
+      "tools": ["nmap"],
+      "aliases": ["open port", "exposed service", "exposed rdp", "exposed ssh", "exposed telnet"],
+      "preconditions": ["network_accessible"],
+      "test_strategy": {
+        "recon_required": false,
+        "auth_required": false,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "Run nmap -sV -sC on target",
+        "Identify services on high-risk ports: 21, 22, 23, 25, 445, 3389",
+        "Attempt banner grab to confirm service version",
+        "Cross-reference version against CVE database"
+      ],
+      "expected_evidence": ["open_port_confirmed", "service_banner", "version_string"],
+      "evidence_requirements": {
+        "request": false, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://www.cisecurity.org/controls/inventory-and-control-of-network-infrastructure-assets"
+    },
+
+    {
+      "id": "NET-002",
+      "canonical_name": "Default Credentials on Network Service",
+      "category": "authentication",
+      "domain": "network",
+      "source": "internal",
+      "owasp_ref": "A07:2021",
+      "cwe": "CWE-1188",
+      "severity_default": "Critical",
+      "agent": "network_agent",
+      "tools": ["nmap", "manual"],
+      "aliases": ["default credentials", "default password", "no authentication"],
+      "preconditions": ["network_service_accessible"],
+      "test_strategy": {
+        "recon_required": false,
+        "auth_required": false,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "Identify service and version",
+        "Attempt known default credentials for that service",
+        "For Redis/MongoDB/Elasticsearch: attempt unauthenticated connection",
+        "For MySQL: attempt root with blank password",
+        "Document successful access"
+      ],
+      "expected_evidence": ["authentication_bypassed", "default_creds_worked", "unauthenticated_access"],
+      "evidence_requirements": {
+        "request": false, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://owasp.org/www-project-top-ten/2017/A2_2017-Broken_Authentication"
+    },
+
+    {
+      "id": "NET-003",
+      "canonical_name": "Outdated Software Version with Known CVE",
+      "category": "vulnerability",
+      "domain": "network",
+      "source": "internal",
+      "owasp_ref": "A06:2021",
+      "cwe": "CWE-1104",
+      "severity_default": "High",
+      "agent": "network_agent",
+      "tools": ["nmap"],
+      "aliases": ["vulnerable version", "cve", "unpatched software", "outdated service"],
+      "preconditions": ["service_version_detected"],
+      "test_strategy": {
+        "recon_required": false,
+        "auth_required": false,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "Identify software version via nmap -sV",
+        "Cross-reference against NVD/CVE database",
+        "Confirm CVE applicability to exact version",
+        "Document CVSS score and exploit availability"
+      ],
+      "expected_evidence": ["version_banner", "cve_id", "nvd_entry"],
+      "evidence_requirements": {
+        "request": false, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://nvd.nist.gov/"
+    },
+
+    {
+      "id": "NET-004",
+      "canonical_name": "Weak SSL/TLS Configuration",
+      "category": "cryptography",
+      "domain": "network",
+      "source": "nist",
+      "owasp_ref": "A02:2021",
+      "cwe": "CWE-326",
+      "severity_default": "Medium",
+      "agent": "network_agent",
+      "tools": ["nmap", "openssl"],
+      "aliases": ["weak tls", "weak ssl", "sslv3", "tls 1.0", "weak ciphers"],
+      "preconditions": ["tls_enabled"],
+      "test_strategy": {
+        "recon_required": false,
+        "auth_required": false,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "Run: nmap --script ssl-enum-ciphers -p 443 target",
+        "Check for SSLv3, TLS 1.0, TLS 1.1 support",
+        "Check for weak cipher suites (RC4, DES, EXPORT)",
+        "Check certificate validity and chain"
+      ],
+      "expected_evidence": ["weak_protocol_supported", "weak_cipher_suite", "certificate_issue"],
+      "evidence_requirements": {
+        "request": false, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/TLS_Cipher_String_Cheat_Sheet.html"
+    },
+
+    {
+      "id": "CLOUD-001",
+      "canonical_name": "Publicly Accessible Cloud Storage Bucket",
+      "category": "exposure",
+      "domain": "cloud",
+      "source": "cis_aws",
+      "owasp_ref": "A05:2021",
+      "cwe": "CWE-284",
+      "severity_default": "Critical",
+      "agent": "cloud_agent",
+      "tools": ["prowler", "aws_cli"],
+      "aliases": ["public s3 bucket", "public storage", "open bucket"],
+      "preconditions": ["cloud_target", "aws_access"],
+      "test_strategy": {
+        "recon_required": false,
+        "auth_required": false,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "List S3 buckets",
+        "Check bucket ACL and policy for public access",
+        "Verify Block Public Access settings",
+        "Attempt anonymous access to bucket contents"
+      ],
+      "expected_evidence": ["public_acl_confirmed", "anonymous_access_success", "data_enumerated"],
+      "evidence_requirements": {
+        "request": false, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+    },
+
+    {
+      "id": "CLOUD-002",
+      "canonical_name": "IAM Misconfiguration",
+      "category": "access_control",
+      "domain": "cloud",
+      "source": "cis_aws",
+      "owasp_ref": "A01:2021",
+      "cwe": "CWE-732",
+      "severity_default": "High",
+      "agent": "cloud_agent",
+      "tools": ["prowler"],
+      "aliases": ["iam misconfiguration", "overprivileged role", "root access keys", "no mfa"],
+      "preconditions": ["cloud_target", "aws_access"],
+      "test_strategy": {
+        "recon_required": false,
+        "auth_required": true,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "Check if root account has active access keys",
+        "Check if MFA is enabled for all console users",
+        "Check for overly permissive IAM policies (*:*)",
+        "Check password policy strength"
+      ],
+      "expected_evidence": ["root_keys_active", "mfa_disabled", "wildcard_policy_found"],
+      "evidence_requirements": {
+        "request": false, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html"
+    },
+
+    {
+      "id": "CLOUD-003",
+      "canonical_name": "Missing Cloud Audit Logging",
+      "category": "monitoring",
+      "domain": "cloud",
+      "source": "cis_aws",
+      "owasp_ref": "A09:2021",
+      "cwe": "CWE-778",
+      "severity_default": "High",
+      "agent": "cloud_agent",
+      "tools": ["prowler"],
+      "aliases": ["cloudtrail disabled", "audit logging disabled", "no logging"],
+      "preconditions": ["cloud_target", "aws_access"],
+      "test_strategy": {
+        "recon_required": false,
+        "auth_required": true,
+        "input_discovery": false
+      },
+      "test_steps": [
+        "Check CloudTrail is enabled in all regions",
+        "Verify log file validation is enabled",
+        "Check CloudWatch alarms exist for critical API calls",
+        "Verify S3 bucket for logs is not publicly accessible"
+      ],
+      "expected_evidence": ["cloudtrail_disabled", "region_without_logging"],
+      "evidence_requirements": {
+        "request": false, "response": true, "payload": false, "screenshot": false
+      },
+      "remediation_ref": "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-getting-started.html"
+    }
+  ],
+
+  "owasp_fallback_categories": {
+    "web": {
+      "source": "OWASP WSTG v4.2",
+      "url": "https://owasp.org/www-project-web-security-testing-guide/",
+      "categories": [
+        "OTG-INFO: Information Gathering",
+        "OTG-CONFIG: Configuration and Deployment Management",
+        "OTG-IDENT: Identity Management",
+        "OTG-AUTHN: Authentication Testing",
+        "OTG-AUTHZ: Authorization Testing",
+        "OTG-SESS: Session Management Testing",
+        "OTG-INPVAL: Input Validation Testing",
+        "OTG-CRYPST: Testing for Weak Cryptography",
+        "OTG-BUSLOGIC: Business Logic Testing",
+        "OTG-CLIENT: Client-Side Testing"
+      ]
+    },
+    "network": {
+      "source": "NIST SP 800-115 / CIS Controls",
+      "url": "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-115.pdf",
+      "categories": [
+        "Network enumeration and port scanning",
+        "Service version detection and CVE correlation",
+        "Authentication bypass and default credentials",
+        "SSL/TLS configuration assessment",
+        "Firewall and ACL rule analysis"
+      ]
+    },
+    "cloud": {
+      "source": "CIS AWS Foundations Benchmark",
+      "url": "https://www.cisecurity.org/benchmark/amazon_web_services",
+      "categories": [
+        "Identity and Access Management",
+        "Storage security (S3, EBS)",
+        "Logging and Monitoring (CloudTrail)",
+        "Networking (VPC, Security Groups)",
+        "Compute security (EC2, Lambda)"
+      ]
+    }
+  }
+}
