@@ -312,7 +312,7 @@ if page == "Scan":
                     data = api_get(f"/session/{result['session_id']}/status")
                     if not data: break
                     
-                    pct = {"recon": 20, "scanning": 50, "enrichment": 80, "awaiting_validation": 95, "completed": 100}.get(data.get("status"), 50)
+                    pct = {"recon": 20, "knowledge_resolution": 30, "scanning": 55, "enrichment": 75, "ai_analysis": 88, "awaiting_validation": 95, "completed": 100}.get(data.get("status"), 50)
                     prog.progress(pct / 100)
                     stat.markdown(f"**{data.get('status').upper()}** | {data.get('total_findings', 0)} findings")
                     
@@ -342,21 +342,53 @@ if page == "Scan":
 
 elif page == "Dashboard":
     st.markdown("# Assessment Dashboard")
-    
+
     if st.button("Refresh", use_container_width=False):
         st.rerun()
-    
+
     data = api_get("/sessions")
-    
+
     if not data or data.get("count", 0) == 0:
         st.info("No scans yet")
     else:
-        for s in reversed(data.get("sessions", [])[:10]):
-            with st.expander(f"{s.get('target', '?')} | {s.get('total_findings', 0)} findings | {s.get('status')}"):
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Status", s.get("status"))
-                c2.metric("Risk", s.get("risk_rating", "-"))
-                c3.metric("Findings", s.get("total_findings", 0))
+        sessions_list = data.get("sessions", [])
+
+        # ── Summary header ──────────────────────────────────────────────────
+        total_sessions  = data.get("total", 0)
+        # Only count findings from the LATEST scan of each unique target
+        # (avoids double-counting repeated scans of the same host)
+        seen_targets = {}
+        for s in sessions_list:
+            t = s.get("target", "?")
+            if t not in seen_targets:
+                seen_targets[t] = s.get("total_findings", 0)
+
+        total_findings  = sum(s.get("total_findings", 0) for s in sessions_list)
+        critical_scans  = sum(1 for s in sessions_list if s.get("risk_rating") == "CRITICAL")
+
+        hc1, hc2, hc3, hc4 = st.columns(4)
+        hc1.metric("Total Scans",    total_sessions)
+        hc2.metric("Total Findings", total_findings)
+        hc3.metric("Critical Scans", critical_scans)
+        hc4.metric("Targets Scanned", len(seen_targets))
+
+        st.divider()
+        st.markdown("### Recent Sessions (newest first)")
+
+        for s in sessions_list[:10]:   # already sorted newest-first by API
+            risk    = s.get("risk_rating", "-")
+            count   = s.get("total_findings", 0)
+            status  = s.get("status", "?")
+            sid_tag = s.get("session_id", "?")
+            target  = s.get("target", "?")
+
+            risk_icon = {"CRITICAL":"🔴","HIGH":"🟠","MEDIUM":"🟡","LOW":"🟢","CLEAN":"✅"}.get(risk, "⚪")
+            with st.expander(f"{risk_icon} `{sid_tag}` — {target}  |  {count} findings  |  {risk}"):
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Status",   status)
+                c2.metric("Risk",     risk)
+                c3.metric("Findings", count)
+                c4.metric("Duration", f"{s.get('duration_seconds') or '-'}s")
 
 # ────────────────────────────────────────────────────────────────────────────
 # PAGE: REVIEW
@@ -364,21 +396,20 @@ elif page == "Dashboard":
 
 elif page == "Review":
     st.markdown("# Findings Review")
-    
-    # Fetch available sessions
+
     sessions_data = api_get("/sessions")
     sessions_list = sessions_data.get("sessions", []) if sessions_data else []
-    
+
     if not sessions_list:
         st.info("No scans available. Start a new assessment in the Scan tab.")
     else:
-        # Create a mapping of display names to session IDs
+        # Newest first; show session_id + target so user knows exactly which scan
         session_options = {
-            f"{s.get('target', 'Unknown')} | {s.get('total_findings', 0)} findings | {s.get('status', 'unknown')}": s.get('session_id')
+            f"[{s.get('session_id')}]  {s.get('target','?')}  ({s.get('total_findings',0)} findings  ·  {s.get('risk_rating','-')})": s.get("session_id")
             for s in sessions_list
         }
-        
-        selected_display = st.selectbox("Select Scan", list(session_options.keys()))
+
+        selected_display = st.selectbox("Select Scan Session", list(session_options.keys()))
         sid = session_options[selected_display]
         
         data = api_get(f"/session/{sid}")
@@ -403,19 +434,39 @@ elif page == "Review":
                 st.info("No findings")
             else:
                 # Filter and sort
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 with col1:
-                    filter_severity = st.multiselect("Filter Severity", 
+                    filter_severity = st.multiselect(
+                        "Filter Severity",
                         ["Critical", "High", "Medium", "Low", "Info"],
-                        default=["Critical", "High", "Medium"])
-                
+                        default=["Critical", "High", "Medium", "Low", "Info"],  # show ALL by default
+                    )
                 with col2:
-                    sort_by = st.selectbox("Sort by", ["Severity", "CVSS Score"])
+                    sort_by = st.selectbox("Sort by", ["Severity", "CVSS Score", "Module"])
+                with col3:
+                    filter_module = st.multiselect(
+                        "Filter Module",
+                        ["recon", "web", "network", "cloud"],
+                        default=[],
+                    )
                 
                 st.divider()
-                
+
                 filtered = [f for f in findings if f.get("severity") in filter_severity]
-                
+                if filter_module:
+                    filtered = [f for f in filtered if f.get("module") in filter_module]
+
+                if sort_by == "CVSS Score":
+                    filtered = sorted(filtered, key=lambda x: x.get("cvss_score") or 0, reverse=True)
+                elif sort_by == "Module":
+                    filtered = sorted(filtered, key=lambda x: x.get("module", ""))
+                # default: Severity order
+                else:
+                    sev_order = {"Critical":0,"High":1,"Medium":2,"Low":3,"Info":4}
+                    filtered = sorted(filtered, key=lambda x: sev_order.get(x.get("severity","Info"), 5))
+
+                st.caption(f"Showing {len(filtered)} of {len(findings)} findings")
+
                 for idx, f in enumerate(filtered):
                     finding_id = f.get("id", f"finding_{idx}")
                     severity = f.get("severity", "Info")
@@ -481,23 +532,43 @@ elif page == "Review":
                         with col_right:
                             st.markdown("**Severity**")
                             st.write(severity)
-                            
+
                             st.markdown("**CVSS Score**")
                             st.write(cvss)
-                            
+
                             if f.get("cvss_vector"):
                                 st.markdown("**CVSS Vector**")
                                 st.code(f["cvss_vector"], language="text")
-                            
+
                             st.markdown("**Module**")
                             st.write(f.get("module", "-"))
-                            
+
                             st.markdown("**Tool**")
                             st.write(f.get("tool_used", "-"))
-                            
+
                             if f.get("cve"):
                                 st.markdown("**CVE**")
                                 st.write(f["cve"])
+
+                            # ── AI Analysis block ────────────────────────────────
+                            if f.get("llm_analysed"):
+                                st.divider()
+                                st.markdown("**🧠 AI Analysis**")
+
+                                conf = f.get("confidence_score", 0)
+                                conf_pct = int(conf * 100)
+                                st.progress(conf, text=f"Confidence: {conf_pct}%")
+
+                                fp_status = f.get("fp_status", "uncertain")
+                                fp_colors = {
+                                    "confirmed":              "🟢 Confirmed",
+                                    "likely_false_positive":  "🔴 Likely False Positive",
+                                    "uncertain":              "🟡 Uncertain",
+                                }
+                                st.caption(fp_colors.get(fp_status, fp_status))
+
+                                if f.get("fp_reason"):
+                                    st.caption(f"💬 {f['fp_reason']}")
                         
                         # Validation buttons
                         st.divider()

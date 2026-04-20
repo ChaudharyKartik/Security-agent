@@ -68,10 +68,8 @@ def _try_zap_scan(url: str, base: str, key: str, config) -> list | None:
         if config and config.auth_type != "none":
             _configure_zap_auth(base, key, url, config)
 
-        # BUG FIX #3: Capture the scan ID from spider/ascan action responses.
-        # Previously the scan ID was ignored and the URL was passed to _zap_wait(),
-        # but ZAP's status endpoints expect a scanId, not a URL — so status was
-        # always 0 and _zap_wait() would spin for the full timeout (180s) doing nothing.
+        # Capture the scan ID from spider/ascan action responses.
+        # ZAP status endpoints expect a scanId integer, not a URL string.
         spider_r = httpx.get(f"{base}/JSON/spider/action/scan/",
                              params={"apikey": key, "url": url, "maxChildren": 10}, timeout=10)
         spider_id = spider_r.json().get("scan", "0")
@@ -116,7 +114,8 @@ def _configure_zap_auth(base: str, key: str, url: str, config):
 
 
 def _zap_wait(task: str, base: str, key: str, scan_id: str = "0", timeout: int = 180):
-    # BUG FIX #3 (continued): Poll ZAP status by scanId (not URL). The ZAP API's
+    # Poll ZAP status by scanId. The ZAP API's status endpoint returns
+    # percentage complete (0-100) for a given scan ID.
     # spider/view/status and ascan/view/status endpoints return progress for a
     # specific scan identified by its integer scan ID, not the target URL.
     ep = {"spider": f"{base}/JSON/spider/view/status/",
@@ -429,9 +428,7 @@ def _check_sensitive_paths(base_url: str, headers: dict) -> list:
                         "response_snippet": r.text[:300],
                     },
                 })
-            # BUG FIX #5: 401/403 also confirms the path exists (server knows
-            # about it but is protecting it) — flag as a lower-severity finding
-            # so analysts can manually verify whether access controls are sufficient.
+            # 401/403 confirms the path exists but is protected — flag for analyst review
             elif r.status_code in (401, 403):
                 findings.append({
                     "name": f"{name} (Access Restricted — Path Exists)",

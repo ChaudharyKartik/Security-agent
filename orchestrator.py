@@ -17,6 +17,7 @@ from datetime import datetime
 from dataclasses import asdict
 
 from agents.knowledge_agent import KnowledgeAgent, ExecutionPlan, MODE_FULL
+from agents.fp_agent import analyse_findings
 from modules.recon import run_recon
 from modules.network_module import run_network_scan
 from modules.web_module import run_web_scan
@@ -137,14 +138,18 @@ class Orchestrator:
             module_results = self._dispatch_agents(target, recon, plan, session)
 
             # ── Phase 4: Enrichment ────────────────────────────────────────────
-            # BUG FIX #1: Include recon findings in enrichment — previously they
-            # were stored in raw_results["recon"] but never passed to enrich_findings(),
-            # causing all recon-generated findings (missing headers, plain HTTP,
-            # risky ports) to be silently dropped from the final output.
+            # Include recon findings in enrichment alongside all agent results
             _set("enrichment")
             all_results = [session["raw_results"]["recon"]] + module_results
             session["enriched_findings"] = enrich_findings(all_results)
-            session["summary"]           = self._build_summary(
+            # ── Phase 5: AI False Positive Analysis (Gemma 4) ─────────────────
+            # Runs only if Ollama is available; falls back silently if not.
+            _set("ai_analysis")
+            session["enriched_findings"] = analyse_findings(
+                session["enriched_findings"]
+            )
+            # Rebuild summary after AI re-scoring (confidence scores may change)
+            session["summary"] = self._build_summary(
                 session["enriched_findings"], session, plan)
             _set("awaiting_validation")
 
@@ -185,10 +190,8 @@ class Orchestrator:
         futures      = {}
 
         # Build task map — only include agents that have tests assigned.
-        # BUG FIX #6: Lambdas now use default argument binding (i=items) to
-        # capture the value of checklist_items at definition time rather than
-        # closing over the mutable `agent_groups` dict by reference, which
-        # would cause all lambdas to see the same (last) value if ever refactored.
+        # Lambdas use default argument binding (i=items) to capture the current
+        # value of checklist_items at definition time, avoiding late-binding closure issues.
         task_map = {}
         if "network_agent" in agent_groups:
             _items = agent_groups["network_agent"]
@@ -202,12 +205,10 @@ class Orchestrator:
                 target, self.config,
                 checklist_items=i
             )
-        # BUG FIX #4: Honor the run_cloud flag from ScanConfig — previously the
-        # cloud agent was only dispatched when the Knowledge Agent resolved a
-        # cloud_agent group (only for cloud-keyword targets). Now it also runs
-        # whenever the user explicitly set run_cloud=True in the scan request.
-        _run_cloud = self.config and getattr(self.config, "run_cloud", False)
-        if "cloud_agent" in agent_groups or _run_cloud:
+        # Cloud only runs when explicitly requested (cloud infra is env-specific)
+        # run_cloud=True must be set in the scan request — KA plan alone is not enough
+        _run_cloud = bool(self.config and getattr(self.config, "run_cloud", False))
+        if _run_cloud:
             _items = agent_groups.get("cloud_agent", [])
             task_map["cloud_agent"] = lambda i=_items: run_cloud_scan(
                 target, self.config,

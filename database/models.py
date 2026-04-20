@@ -89,7 +89,16 @@ class ScanFinding(Base):
     cvss_metrics          = Column(JSONText,    nullable=True)
     exploitability_score  = Column(Float,       nullable=True)
     impact_score          = Column(Float,       nullable=True)
-    confidence_score      = Column(Float,       nullable=True)   # 0.0–1.0
+    confidence_score      = Column(Float,       nullable=True)   # 0.0–1.0 (heuristic or AI)
+
+    # AI Analysis (Phase 3 — Gemma 4 via Ollama)
+    llm_analysed          = Column(Boolean,    nullable=False, default=False)
+    ai_confidence_score   = Column(Float,       nullable=True)   # 0.0–1.0 from LLM
+    fp_status             = Column(String(32),  nullable=True)   # confirmed|likely_false_positive|uncertain
+    fp_reason             = Column(Text,        nullable=True)   # LLM explanation
+    ai_description        = Column(Text,        nullable=True)   # LLM-written description
+    ai_remediation        = Column(Text,        nullable=True)   # LLM-written remediation
+    impact                = Column(Text,        nullable=True)   # LLM-written impact statement
 
     # Location
     target                = Column(String(512), nullable=True)
@@ -124,6 +133,7 @@ class ScanFinding(Base):
     # Timestamps
     enriched_at           = Column(DateTime,   nullable=True)
     created_at            = Column(DateTime,   nullable=False, default=datetime.utcnow)
+
 
     # Relationships
     session   = relationship("ScanSession",    back_populates="findings")

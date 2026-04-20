@@ -141,6 +141,14 @@ def _build_finding(f: dict, session_id: str,
         exploitability_score   = f.get("exploitability_score"),
         impact_score           = f.get("impact_score"),
         confidence_score       = f.get("confidence_score"),
+        # AI analysis fields (Phase 3)
+        llm_analysed           = f.get("llm_analysed", False),
+        ai_confidence_score    = f.get("ai_confidence_score"),
+        fp_status              = f.get("fp_status"),
+        fp_reason              = f.get("fp_reason"),
+        ai_description         = f.get("ai_description"),
+        ai_remediation         = f.get("ai_remediation"),
+        impact                 = f.get("impact"),
         target                 = f.get("target"),
         url                    = f.get("url"),
         port                   = f.get("port"),
@@ -173,6 +181,16 @@ def _update_finding(obj: ScanFinding, f: dict, session_id: str,
     obj.cvss_vector            = f.get("cvss_vector", obj.cvss_vector)
     obj.cvss_metrics           = f.get("cvss_metrics", obj.cvss_metrics)
     obj.confidence_score       = f.get("confidence_score", obj.confidence_score)
+    # AI fields
+    obj.llm_analysed           = f.get("llm_analysed", obj.llm_analysed)
+    obj.ai_confidence_score    = f.get("ai_confidence_score", obj.ai_confidence_score)
+    obj.fp_status              = f.get("fp_status", obj.fp_status)
+    obj.fp_reason              = f.get("fp_reason", obj.fp_reason)
+    obj.ai_description         = f.get("ai_description", obj.ai_description)
+    obj.ai_remediation         = f.get("ai_remediation", obj.ai_remediation)
+    obj.impact                 = f.get("impact", obj.impact)
+    obj.description            = f.get("description", obj.description)
+    obj.solution               = f.get("solution", obj.solution)
     obj.evidence               = f.get("evidence", obj.evidence)
     obj.validation_status      = f.get("validation_status", obj.validation_status)
     obj.validated_by           = f.get("validated_by", obj.validated_by)
@@ -288,6 +306,14 @@ def finding_to_dict(obj: ScanFinding) -> dict:
         "exploitability_score":  obj.exploitability_score,
         "impact_score":          obj.impact_score,
         "confidence_score":      obj.confidence_score,
+        # AI analysis fields
+        "llm_analysed":          obj.llm_analysed or False,
+        "ai_confidence_score":   obj.ai_confidence_score,
+        "fp_status":             obj.fp_status,
+        "fp_reason":             obj.fp_reason,
+        "ai_description":        obj.ai_description,
+        "ai_remediation":        obj.ai_remediation,
+        "impact":                obj.impact,
         "target":                obj.target,
         "url":                   obj.url,
         "port":                  obj.port,
