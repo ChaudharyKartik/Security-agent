@@ -14,7 +14,6 @@ Scan modes supported:
 import logging
 import concurrent.futures
 from datetime import datetime
-from dataclasses import asdict
 
 from agents.knowledge_agent import KnowledgeAgent, ExecutionPlan, MODE_FULL
 from agents.fp_agent import analyse_findings
@@ -23,6 +22,7 @@ from modules.network_module import run_network_scan
 from modules.web_module import run_web_scan
 from modules.cloud_module import run_cloud_scan
 from enrichment import enrich_findings
+from database import crud
 
 logger = logging.getLogger(__name__)
 
@@ -75,19 +75,15 @@ class Orchestrator:
             session["status"] = s
             if status_callback:
                 status_callback(session_id, s)
-            # Persist status update to DB if available
             if db:
                 try:
-                    from database import crud
                     crud.update_session_status(db, session_id, s)
                 except Exception as e:
                     logger.warning(f"[DB] Status update failed: {e}")
             logger.info(f"[ORCHESTRATOR] [{session_id}] Status -> {s}")
 
-        # Create the DB record now (before anything can fail)
         if db:
             try:
-                from database import crud
                 crud.create_session(db, session)
             except Exception as e:
                 logger.warning(f"[DB] Session create failed: {e}")
@@ -164,7 +160,6 @@ class Orchestrator:
             # Finalise DB record with findings and summary
             if db:
                 try:
-                    from database import crud
                     crud.finalise_session(db, session)
                     if session.get("enriched_findings"):
                         crud.save_findings(db, session_id, session["enriched_findings"])
@@ -225,7 +220,9 @@ class Orchestrator:
             for future in concurrent.futures.as_completed(futures):
                 agent_name = futures[future]
                 try:
-                    result = future.result(timeout=300)
+                    # Cloud scans (Prowler) can take 10-15 min for a full AWS audit
+                    _timeout = 1000 if agent_name == "cloud_agent" else 300
+                    result = future.result(timeout=_timeout)
                     session["raw_results"][agent_name] = result
                     session["agents_executed"].append(agent_name)
                     results.append(result)

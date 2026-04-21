@@ -18,12 +18,7 @@ logger = logging.getLogger(__name__)
 
 def create_session(db: Session, session_dict: dict) -> ScanSession:
     """Persist a new scan session record at scan start."""
-    start = session_dict.get("start_time")
-    if isinstance(start, str):
-        try:
-            start = datetime.fromisoformat(start)
-        except ValueError:
-            start = datetime.utcnow()
+    start = _parse_dt(session_dict.get("start_time")) or datetime.utcnow()
 
     obj = ScanSession(
         id              = session_dict["session_id"],
@@ -69,12 +64,7 @@ def finalise_session(db: Session, session_dict: dict) -> None:
         logger.warning(f"[DB] finalise_session: {session_dict['session_id']} not found")
         return
 
-    end = session_dict.get("end_time")
-    if isinstance(end, str):
-        try:
-            end = datetime.fromisoformat(end)
-        except ValueError:
-            end = datetime.utcnow()
+    end = _parse_dt(session_dict.get("end_time")) or datetime.utcnow()
 
     obj.status           = session_dict.get("status", "completed")
     obj.end_time         = end
@@ -90,38 +80,39 @@ def finalise_session(db: Session, session_dict: dict) -> None:
 
 def save_findings(db: Session, session_id: str, findings: list[dict]) -> int:
     """Bulk-upsert enriched findings for a session. Returns count saved."""
-    count = 0
-    for f in findings:
-        fid = f.get("id")
-        if not fid:
-            continue
+    valid = [f for f in findings if f.get("id")]
+    if not valid:
+        return 0
 
-        validated_at = f.get("validated_at")
-        if isinstance(validated_at, str) and validated_at:
-            try:
-                validated_at = datetime.fromisoformat(validated_at)
-            except ValueError:
-                validated_at = None
+    # Bulk fetch all existing IDs in one query (avoids N+1)
+    ids = [f["id"] for f in valid]
+    existing_map = {
+        obj.id: obj
+        for obj in db.query(ScanFinding).filter(ScanFinding.id.in_(ids)).all()
+    }
 
-        enriched_at = f.get("enriched_at")
-        if isinstance(enriched_at, str) and enriched_at:
-            try:
-                enriched_at = datetime.fromisoformat(enriched_at)
-            except ValueError:
-                enriched_at = None
+    for f in valid:
+        fid = f["id"]
+        validated_at = _parse_dt(f.get("validated_at"))
+        enriched_at  = _parse_dt(f.get("enriched_at"))
 
-        # Upsert: update if exists, insert if not
-        existing = db.query(ScanFinding).filter(ScanFinding.id == fid).first()
-        if existing:
-            _update_finding(existing, f, session_id, validated_at, enriched_at)
+        if fid in existing_map:
+            _update_finding(existing_map[fid], f, session_id, validated_at, enriched_at)
         else:
-            obj = _build_finding(f, session_id, validated_at, enriched_at)
-            db.add(obj)
-        count += 1
+            db.add(_build_finding(f, session_id, validated_at, enriched_at))
 
     db.commit()
-    logger.info(f"[DB] {count} findings saved for session {session_id}")
-    return count
+    logger.info(f"[DB] {len(valid)} findings saved for session {session_id}")
+    return len(valid)
+
+
+def _parse_dt(value):
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            pass
+    return None
 
 
 def _build_finding(f: dict, session_id: str,
@@ -265,6 +256,24 @@ def get_reports(db: Session, session_id: str) -> list[ScanReport]:
               .filter(ScanReport.session_id == session_id)
               .order_by(ScanReport.created_at.desc())
               .all())
+
+
+# ── Aggregate helpers ─────────────────────────────────────────────────────────
+
+def count_sessions(db: Session) -> int:
+    return db.query(ScanSession).count()
+
+
+def db_ping(db: Session) -> str:
+    try:
+        db.query(ScanSession).limit(1).all()
+        return "ok"
+    except Exception as e:
+        return f"error: {e}"
+
+
+def get_finding_by_id(db: Session, finding_id: str) -> Optional[ScanFinding]:
+    return db.query(ScanFinding).filter(ScanFinding.id == finding_id).first()
 
 
 # ── Utility ────────────────────────────────────────────────────────────────────

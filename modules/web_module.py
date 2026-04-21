@@ -103,7 +103,7 @@ def _configure_zap_auth(base: str, key: str, url: str, config):
                                   f"loginUrl={config.login_url}&"
                                   f"loginRequestData={config.username_field}%3D{config.username}%26"
                                   f"{config.password_field}%3D{config.password}"}, timeout=5)
-        elif config.auth_type == "http_basic" and config.username:
+        elif config.auth_type == "basic" and config.username:
             httpx.get(f"{base}/JSON/authentication/action/setAuthenticationMethod/",
                       params={"apikey": key, "contextId": ctx_id,
                               "authMethodName": "httpAuthentication",
@@ -389,35 +389,38 @@ def _check_cors(headers: dict, url: str, req_str: str, resp) -> list:
 
 
 def _check_sensitive_paths(base_url: str, headers: dict) -> list:
-    findings = []
+    import concurrent.futures
+
     paths = [
-        ("/.git/HEAD",         "Git Repository Exposed",       "Critical",
+        ("/.git/HEAD",        "Git Repository Exposed",       "Critical",
          ".git dir publicly accessible — full source code leakable."),
-        ("/.env",              ".env File Exposed",             "Critical",
+        ("/.env",             ".env File Exposed",             "Critical",
          ".env file publicly accessible — secrets, API keys, DB creds exposed."),
-        ("/wp-login.php",      "WordPress Login Panel Exposed", "Medium",
+        ("/wp-login.php",     "WordPress Login Panel Exposed", "Medium",
          "WordPress admin login publicly accessible — brute force risk."),
-        ("/phpmyadmin/",       "phpMyAdmin Panel Exposed",      "High",
+        ("/phpmyadmin/",      "phpMyAdmin Panel Exposed",      "High",
          "phpMyAdmin accessible from internet — direct database access."),
-        ("/admin/",            "Admin Panel Exposed",           "Medium",
+        ("/admin/",           "Admin Panel Exposed",           "Medium",
          "Admin panel accessible from internet."),
-        ("/server-status",     "Apache server-status Exposed",  "Medium",
+        ("/server-status",    "Apache server-status Exposed",  "Medium",
          "Apache server-status leaks request details."),
-        ("/actuator/env",      "Spring Boot Actuator Exposed",  "High",
+        ("/actuator/env",     "Spring Boot Actuator Exposed",  "High",
          "Spring Actuator /env endpoint leaks env vars and secrets."),
-        ("/.aws/credentials",  "AWS Credentials File Exposed",  "Critical",
+        ("/.aws/credentials", "AWS Credentials File Exposed",  "Critical",
          "AWS credentials file publicly accessible — full AWS account compromise."),
-        ("/api/swagger.json",  "Swagger Spec Exposed",          "Low",
+        ("/api/swagger.json", "Swagger Spec Exposed",          "Low",
          "API schema exposed — all endpoints and parameters revealed."),
-        ("/backup.zip",        "Backup Archive Exposed",        "High",
+        ("/backup.zip",       "Backup Archive Exposed",        "High",
          "Backup archive publicly accessible — source code / DB dump risk."),
     ]
-    for path, name, risk, desc in paths:
+
+    def _probe(path_tuple):
+        path, name, risk, desc = path_tuple
         url = urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
         try:
             r = httpx.get(url, timeout=5, follow_redirects=False, headers=headers)
             if r.status_code in (200, 206):
-                findings.append({
+                return {
                     "name": name, "type": "information_disclosure", "risk": risk, "url": url,
                     "description": desc,
                     "solution": f"Restrict access to {path} via server config / firewall.",
@@ -427,18 +430,16 @@ def _check_sensitive_paths(base_url: str, headers: dict) -> list:
                         "status_code":      r.status_code,
                         "response_snippet": r.text[:300],
                     },
-                })
-            # 401/403 confirms the path exists but is protected — flag for analyst review
-            elif r.status_code in (401, 403):
-                findings.append({
+                }
+            if r.status_code in (401, 403):
+                return {
                     "name": f"{name} (Access Restricted — Path Exists)",
                     "type": "information_disclosure",
                     "risk": "Low",
                     "url": url,
                     "description": (
                         f"{desc} The server returned HTTP {r.status_code}, confirming "
-                        f"the path exists but is currently access-controlled. "
-                        f"Verify controls are sufficient and the path should not be public."
+                        f"the path exists but is currently access-controlled."
                     ),
                     "solution": f"Confirm {path} is intentionally protected and cannot be bypassed.",
                     "evidence": {
@@ -446,9 +447,16 @@ def _check_sensitive_paths(base_url: str, headers: dict) -> list:
                         "curl_poc":    f'curl -sk -i "{url}"',
                         "status_code": r.status_code,
                     },
-                })
+                }
         except httpx.RequestError:
             pass
+        return None
+
+    findings = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
+        for result in ex.map(_probe, paths):
+            if result:
+                findings.append(result)
     return findings
 
 

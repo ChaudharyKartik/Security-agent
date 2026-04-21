@@ -69,13 +69,21 @@ def _resolve_dns(hostname: str) -> str | None:
 
 
 def _port_prescan(host: str) -> list:
-    open_ports = []
-    for port in COMMON_PORTS:
+    import concurrent.futures
+
+    def _check(port):
         try:
-            with socket.create_connection((host, port), timeout=3):
-                open_ports.append({"port": port, "service": _guess_service(port), "state": "open"})
+            with socket.create_connection((host, port), timeout=2):
+                return {"port": port, "service": _guess_service(port), "state": "open"}
         except (socket.timeout, ConnectionRefusedError, OSError):
-            pass
+            return None
+
+    open_ports = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as ex:
+        for result in ex.map(_check, COMMON_PORTS):
+            if result:
+                open_ports.append(result)
+    open_ports.sort(key=lambda p: p["port"])
     return open_ports
 
 
@@ -136,25 +144,30 @@ def _recon_findings(open_ports: list, http_info: dict, host_type: str) -> list:
                 3389:"RDP", 5432:"PostgreSQL", 6379:"Redis",
                 9200:"Elasticsearch", 27017:"MongoDB"}
 
+    # Extract base URL from the raw_request curl command safely
+    raw_req  = http_info.get("raw_request", "")
+    base_url = ""
+    if raw_req:
+        # curl command format: curl -sk -i [-H "..."] "URL"
+        parts = raw_req.split('"')
+        base_url = parts[-2] if len(parts) >= 2 else ""
+
     for p in open_ports:
         if p["port"] in risky:
-            poc_target = http_info.get("raw_request", "target")
             findings.append({
                 "name":        f"Exposed {risky[p['port']]} Service",
                 "type":        "open_port",
                 "risk":        "Medium",
                 "port":        p["port"],
                 "service":     p["service"],
-                "url":         f"{poc_target.split()[2].strip('"')}:{p['port']}" if poc_target else str(p["port"]),
+                "url":         f"{base_url}:{p['port']}" if base_url else str(p["port"]),
                 "description": f"Port {p['port']} ({risky[p['port']]}) is publicly reachable.",
                 "solution":    f"Restrict port {p['port']} to trusted IPs only.",
                 "evidence": {
-                    "curl_poc": f'nc -zv {poc_target} {p["port"]}',
+                    "curl_poc": f'nc -zv {base_url or "target"} {p["port"]}',
                     "type":     "port_open",
                 },
             })
-
-    base_url = http_info.get("raw_request", "").split()[-1].strip('"') if http_info.get("raw_request") else ""
 
     if http_info.get("status_code") and not http_info.get("https"):
         findings.append({

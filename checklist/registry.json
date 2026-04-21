@@ -1,318 +1,3721 @@
 {
-  "version": "1.0",
-  "description": "Canonical VAPT checklist registry. Every test the platform can run is defined here. canonical_name is law — it appears verbatim in reports.",
+  "version": "4.1",
+  "description": "OWASP WSTG v4.1 checklist + network/cloud test items",
   "items": [
-
     {
-      "id": "WEB-001",
-      "canonical_name": "Reflected Cross-Site Scripting (XSS)",
-      "category": "injection",
+      "id": "WSTG-INFO-01",
+      "canonical_name": "Conduct Search Engine Discovery Reconnaissance for Information Leakage",
       "domain": "web",
-      "source": "internal",
-      "owasp_ref": "A03:2021",
-      "cwe": "CWE-79",
+      "agent": "web_agent",
+      "category": "Information Gathering",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-info-01",
+        "WSTG-INFO-01",
+        "conduct search engine discovery reconnai"
+      ],
+      "tools": [
+        "google_hacking",
+        "sitedigger",
+        "shodan",
+        "foca",
+        "punkspider"
+      ],
+      "test_steps": [
+        "Identify test scope for: Conduct Search Engine Discovery Reconnaissance for Information Leakage",
+        "Use a search engine to search for Network diagrams and Configurations, Credentials, Error message content.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Use a search engine to search for Network diagrams and Configurations, Credentials, Error message content."
+    },
+    {
+      "id": "WSTG-INFO-02",
+      "canonical_name": "Fingerprint Web Server",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Information Gathering",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-info-02",
+        "WSTG-INFO-02",
+        "fingerprint web server"
+      ],
+      "tools": [
+        "httprint",
+        "httprecon",
+        "desenmascarame"
+      ],
+      "test_steps": [
+        "Identify test scope for: Fingerprint Web Server",
+        "Find the version and type of a running web server to determine known vulnerabilities and the appropriate exploits. Using \"HTTP header field ordering\" and \"Malformed requests test\".",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Find the version and type of a running web server to determine known vulnerabilities and the appropriate exploits. Using \"HTTP header field ordering\" and \"Malformed requests test\"."
+    },
+    {
+      "id": "WSTG-INFO-03",
+      "canonical_name": "Review Webserver Metafiles for Information Leakage",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Information Gathering",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-info-03",
+        "WSTG-INFO-03",
+        "review webserver metafiles for informati"
+      ],
+      "tools": [
+        "browser",
+        "curl",
+        "wget"
+      ],
+      "test_steps": [
+        "Identify test scope for: Review Webserver Metafiles for Information Leakage",
+        "Analyze robots.txt and identify <META> Tags from website.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Analyze robots.txt and identify <META> Tags from website."
+    },
+    {
+      "id": "WSTG-INFO-04",
+      "canonical_name": "Enumerate Applications on Webserver",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Information Gathering",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-info-04",
+        "WSTG-INFO-04",
+        "enumerate applications on webserver"
+      ],
+      "tools": [
+        "webhosting.info",
+        "dnsrecon",
+        "nmap",
+        "fierce",
+        "recon-ng",
+        "intrigue"
+      ],
+      "test_steps": [
+        "Identify test scope for: Enumerate Applications on Webserver",
+        "Find applications hosted in the webserver (Virtual hosts/Subdomain), non-standard ports, DNS zone transfers",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Find applications hosted in the webserver (Virtual hosts/Subdomain), non-standard ports, DNS zone transfers"
+    },
+    {
+      "id": "WSTG-INFO-05",
+      "canonical_name": "Review Webpage Comments and Metadata for Information Leakage",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Information Gathering",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-info-05",
+        "WSTG-INFO-05",
+        "review webpage comments and metadata for"
+      ],
+      "tools": [
+        "browser",
+        "curl",
+        "wget"
+      ],
+      "test_steps": [
+        "Identify test scope for: Review Webpage Comments and Metadata for Information Leakage",
+        "Find sensitive information from webpage comments and Metadata on source code.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Find sensitive information from webpage comments and Metadata on source code."
+    },
+    {
+      "id": "WSTG-INFO-06",
+      "canonical_name": "Identify application entry points",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Information Gathering",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-info-06",
+        "WSTG-INFO-06",
+        "identify application entry points"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "tamper_data"
+      ],
+      "test_steps": [
+        "Identify test scope for: Identify application entry points",
+        "Identify from hidden fields, parameters, methods HTTP header analysis",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Identify from hidden fields, parameters, methods HTTP header analysis"
+    },
+    {
+      "id": "WSTG-INFO-07",
+      "canonical_name": "Map execution paths through application",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Information Gathering",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-info-07",
+        "WSTG-INFO-07",
+        "map execution paths through application"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Map execution paths through application",
+        "Map the target application and understand the principal workflows.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Map the target application and understand the principal workflows."
+    },
+    {
+      "id": "WSTG-INFO-08",
+      "canonical_name": "Fingerprint Web Application Framework",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Information Gathering",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-info-08",
+        "WSTG-INFO-08",
+        "fingerprint web application framework"
+      ],
+      "tools": [
+        "whatweb",
+        "blindelephant",
+        "wappalyzer"
+      ],
+      "test_steps": [
+        "Identify test scope for: Fingerprint Web Application Framework",
+        "Find the type of web application framework/CMS from HTTP headers, Cookies, Source code, Specific files and folders.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Find the type of web application framework/CMS from HTTP headers, Cookies, Source code, Specific files and folders."
+    },
+    {
+      "id": "WSTG-INFO-09",
+      "canonical_name": "Fingerprint Web Application",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Information Gathering",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-info-09",
+        "WSTG-INFO-09",
+        "fingerprint web application"
+      ],
+      "tools": [
+        "whatweb",
+        "blindelephant",
+        "wappalyzer",
+        "cmsmap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Fingerprint Web Application",
+        "Identify the web application and version to determine known vulnerabilities and the appropriate exploits.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Identify the web application and version to determine known vulnerabilities and the appropriate exploits."
+    },
+    {
+      "id": "WSTG-INFO-10",
+      "canonical_name": "Map Application Architecture",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Information Gathering",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-info-10",
+        "WSTG-INFO-10",
+        "map application architecture"
+      ],
+      "tools": [
+        "browser",
+        "curl",
+        "wget"
+      ],
+      "test_steps": [
+        "Identify test scope for: Map Application Architecture",
+        "Identify application architecture including Web language, WAF, Reverse proxy, Application Server, Backend Database",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Identify application architecture including Web language, WAF, Reverse proxy, Application Server, Backend Database"
+    },
+    {
+      "id": "WSTG-CONF-01",
+      "canonical_name": "Test Network/Infrastructure Configuration",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Configuration and Deploy Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
       "severity_default": "Medium",
-      "agent": "web_agent",
-      "tools": ["zap", "nuclei"],
-      "aliases": ["reflected xss", "xss reflected", "rxss"],
-      "preconditions": ["input_fields_present", "no_strict_output_encoding"],
-      "test_strategy": {
-        "recon_required": true,
-        "auth_required": false,
-        "input_discovery": true
-      },
-      "test_steps": [
-        "Identify all input parameters (GET, POST, headers, cookies)",
-        "Inject standard XSS payloads: <script>alert(1)</script>",
-        "Check if payload is reflected in response without encoding",
-        "Test in different contexts: HTML body, attribute, JS, URL"
+      "aliases": [
+        "wstg-conf-01",
+        "WSTG-CONF-01",
+        "test network/infrastructure configuratio"
       ],
-      "expected_evidence": ["payload_reflected", "unsanitized_output", "alert_executed"],
-      "evidence_requirements": {
-        "request": true, "response": true, "payload": true, "screenshot": false
-      },
-      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
-    },
-
-    {
-      "id": "WEB-002",
-      "canonical_name": "Stored Cross-Site Scripting (XSS)",
-      "category": "injection",
-      "domain": "web",
-      "source": "internal",
-      "owasp_ref": "A03:2021",
-      "cwe": "CWE-79",
-      "severity_default": "High",
-      "agent": "web_agent",
-      "tools": ["zap", "nuclei"],
-      "aliases": ["stored xss", "persistent xss"],
-      "preconditions": ["input_fields_present", "data_persistence"],
-      "test_strategy": {
-        "recon_required": true,
-        "auth_required": false,
-        "input_discovery": true
-      },
-      "test_steps": [
-        "Find fields that store and re-display user input (comments, profiles, etc.)",
-        "Inject XSS payload into stored field",
-        "Navigate to the page that renders stored data",
-        "Verify payload executes on render"
+      "tools": [
+        "nessus"
       ],
-      "expected_evidence": ["payload_stored", "payload_executed_on_render"],
-      "evidence_requirements": {
-        "request": true, "response": true, "payload": true, "screenshot": false
-      },
-      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
-    },
-
-    {
-      "id": "WEB-003",
-      "canonical_name": "SQL Injection",
-      "category": "injection",
-      "domain": "web",
-      "source": "internal",
-      "owasp_ref": "A03:2021",
-      "cwe": "CWE-89",
-      "severity_default": "Critical",
-      "agent": "web_agent",
-      "tools": ["sqlmap", "zap"],
-      "aliases": ["sqli", "sql injection", "blind sqli", "error-based sqli"],
-      "preconditions": ["database_backend", "user_input_to_query"],
-      "test_strategy": {
-        "recon_required": true,
-        "auth_required": false,
-        "input_discovery": true
-      },
       "test_steps": [
-        "Identify parameters sent to backend queries",
-        "Test with ' and \" to trigger SQL errors",
-        "Use boolean-based payloads: ' AND 1=1-- vs ' AND 1=2--",
-        "Test time-based blind: ' AND SLEEP(5)--",
-        "Use sqlmap for automated extraction if manual confirms"
+        "Identify test scope for: Test Network/Infrastructure Configuration",
+        "Understand the infrastructure elements interactions, config management for software, backend DB server, WebDAV, FTP in order to identify known vulnerabilities.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
       ],
-      "expected_evidence": ["sql_error_message", "boolean_difference", "time_delay", "data_extracted"],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
       "evidence_requirements": {
-        "request": true, "response": true, "payload": true, "screenshot": false
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
       },
-      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Understand the infrastructure elements interactions, config management for software, backend DB server, WebDAV, FTP in order to identify known vulnerabilities."
     },
-
     {
-      "id": "WEB-004",
-      "canonical_name": "Cross-Site Request Forgery (CSRF)",
-      "category": "session",
+      "id": "WSTG-CONF-02",
+      "canonical_name": "Test Application Platform Configuration",
       "domain": "web",
-      "source": "internal",
-      "owasp_ref": "A01:2021",
-      "cwe": "CWE-352",
+      "agent": "web_agent",
+      "category": "Configuration and Deploy Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
       "severity_default": "Medium",
-      "agent": "web_agent",
-      "tools": ["zap", "manual"],
-      "aliases": ["csrf", "xsrf"],
-      "preconditions": ["authenticated_session", "state_changing_requests"],
-      "test_strategy": {
-        "recon_required": true,
-        "auth_required": true,
-        "input_discovery": false
-      },
-      "test_steps": [
-        "Identify state-changing requests (POST, PUT, DELETE)",
-        "Check for CSRF token in request",
-        "Craft HTML form that submits request cross-origin",
-        "Verify if request succeeds without valid CSRF token"
+      "aliases": [
+        "wstg-conf-02",
+        "WSTG-CONF-02",
+        "test application platform configuration"
       ],
-      "expected_evidence": ["missing_csrf_token", "cross_origin_request_accepted"],
+      "tools": [
+        "browser",
+        "nikto"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Application Platform Configuration",
+        "Identify default installation file/directory, Handle Server errors (40*,50*), Minimal Privilege, Software logging.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
       "evidence_requirements": {
-        "request": true, "response": true, "payload": true, "screenshot": false
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
       },
-      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Identify default installation file/directory, Handle Server errors (40*,50*), Minimal Privilege, Software logging."
     },
-
     {
-      "id": "WEB-005",
-      "canonical_name": "Insecure Direct Object Reference (IDOR)",
-      "category": "access_control",
+      "id": "WSTG-CONF-03",
+      "canonical_name": "Test File Extensions Handling for Sensitive Information",
       "domain": "web",
-      "source": "internal",
-      "owasp_ref": "A01:2021",
-      "cwe": "CWE-284",
+      "agent": "web_agent",
+      "category": "Configuration and Deploy Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-conf-03",
+        "WSTG-CONF-03",
+        "test file extensions handling for sensit"
+      ],
+      "tools": [
+        "browser",
+        "nikto"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test File Extensions Handling for Sensitive Information",
+        "Find important file, information (.asa , .inc , .sql ,zip, tar, pdf, txt, etc)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Find important file, information (.asa , .inc , .sql ,zip, tar, pdf, txt, etc)"
+    },
+    {
+      "id": "WSTG-CONF-04",
+      "canonical_name": "Backup and Unreferenced Files for Sensitive Information",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Configuration and Deploy Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-conf-04",
+        "WSTG-CONF-04",
+        "backup and unreferenced files for sensit"
+      ],
+      "tools": [
+        "nessus",
+        "nikto",
+        "wikto"
+      ],
+      "test_steps": [
+        "Identify test scope for: Backup and Unreferenced Files for Sensitive Information",
+        "Check JS source code, comments, cache file, backup file (.old, .bak, .inc, .src) and guessing of filename",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check JS source code, comments, cache file, backup file (.old, .bak, .inc, .src) and guessing of filename"
+    },
+    {
+      "id": "WSTG-CONF-05",
+      "canonical_name": "Enumerate Infrastructure and Application Admin Interfaces",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Configuration and Deploy Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-conf-05",
+        "WSTG-CONF-05",
+        "enumerate infrastructure and application"
+      ],
+      "tools": [
+        "burp",
+        "dirb",
+        "dirbuster",
+        "fuzzdb",
+        "tilde_scanner"
+      ],
+      "test_steps": [
+        "Identify test scope for: Enumerate Infrastructure and Application Admin Interfaces",
+        "Directory and file enumeration, comments and links in source (/admin, /administrator, /backoffice, /backend, etc), alternative server port (Tomcat/8080)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Directory and file enumeration, comments and links in source (/admin, /administrator, /backoffice, /backend, etc), alternative server port (Tomcat/8080)"
+    },
+    {
+      "id": "WSTG-CONF-06",
+      "canonical_name": "Test HTTP Methods",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Configuration and Deploy Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-749",
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-conf-06",
+        "WSTG-CONF-06",
+        "test http methods"
+      ],
+      "tools": [
+        "netcat",
+        "curl"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test HTTP Methods",
+        "Identify HTTP allowed methods on Web server with OPTIONS. Arbitrary HTTP Methods, HEAD access control bypass and XST",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Identify HTTP allowed methods on Web server with OPTIONS. Arbitrary HTTP Methods, HEAD access control bypass and XST"
+    },
+    {
+      "id": "WSTG-CONF-07",
+      "canonical_name": "Test HTTP Strict Transport Security",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Configuration and Deploy Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-conf-07",
+        "WSTG-CONF-07",
+        "test http strict transport security"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "curl"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test HTTP Strict Transport Security",
+        "Identify HSTS header on Web server through HTTP response header.  curl -s -D- https://domain.com/ | grep Strict",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Identify HSTS header on Web server through HTTP response header.  curl -s -D- https://domain.com/ | grep Strict"
+    },
+    {
+      "id": "WSTG-CONF-08",
+      "canonical_name": "Test RIA cross domain policy",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Configuration and Deploy Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-conf-08",
+        "WSTG-CONF-08",
+        "test ria cross domain policy"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "nikto"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test RIA cross domain policy",
+        "Analyse the permissions allowed from the policy files (crossdomain.xml/clientaccesspolicy.xml) and allow-access-from.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Analyse the permissions allowed from the policy files (crossdomain.xml/clientaccesspolicy.xml) and allow-access-from."
+    },
+    {
+      "id": "WSTG-CONF-09",
+      "canonical_name": "Test File Permission",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Configuration and Deploy Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-conf-09",
+        "WSTG-CONF-09",
+        "test file permission"
+      ],
+      "tools": [
+        "windows_accessenum",
+        "windows_accesschk",
+        "linux_namei"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test File Permission",
+        "In Linux, use ls command to check the file permissions. Alternatively, namei can also be used to recursively list file permissions",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "In Linux, use ls command to check the file permissions. Alternatively, namei can also be used to recursively list file permissions"
+    },
+    {
+      "id": "WSTG-CONF-10",
+      "canonical_name": "Test for Subdomain Takeover",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Configuration and Deploy Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-350",
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-conf-10",
+        "WSTG-CONF-10",
+        "test for subdomain takeover"
+      ],
+      "tools": [
+        "amass",
+        "dig",
+        "recon-ng",
+        "the_harvester"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test for Subdomain Takeover",
+        "The first step is to enumerate the victim DNS servers and resource records. There are multiple ways to accomplish this task, for example DNS enumeration using a list of common subdomains dictionary, DNS brute force or using web search engines and other OSINT data sources",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "The first step is to enumerate the victim DNS servers and resource records. There are multiple ways to accomplish this task, for example DNS enumeration using a list of common subdomains dictionary, DNS brute force or using web search engines and other OSINT data sources"
+    },
+    {
+      "id": "WSTG-CONF-11",
+      "canonical_name": "Test Cloud Storage",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Configuration and Deploy Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-conf-11",
+        "WSTG-CONF-11",
+        "test cloud storage"
+      ],
+      "tools": [
+        "awscli"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Cloud Storage",
+        "Assess whether Cloud Storage Service's access control configuration is properly in place.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Assess whether Cloud Storage Service's access control configuration is properly in place."
+    },
+    {
+      "id": "WSTG-IDNT-01",
+      "canonical_name": "Test Role Definitions",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Identity Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-idnt-01",
+        "WSTG-IDNT-01",
+        "test role definitions"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Role Definitions",
+        "Validate the system roles defined within the application by creating permission matrix.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Validate the system roles defined within the application by creating permission matrix."
+    },
+    {
+      "id": "WSTG-IDNT-02",
+      "canonical_name": "Test User Registration Process",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Identity Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-idnt-02",
+        "WSTG-IDNT-02",
+        "test user registration process"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test User Registration Process",
+        "Verify that the identity requirements for user registration are aligned with business and security requirements:",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Verify that the identity requirements for user registration are aligned with business and security requirements:"
+    },
+    {
+      "id": "WSTG-IDNT-03",
+      "canonical_name": "Test Account Provisioning Process",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Identity Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-idnt-03",
+        "WSTG-IDNT-03",
+        "test account provisioning process"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Account Provisioning Process",
+        "Determine which roles are able to provision users and what sort of accounts they can provision.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Determine which roles are able to provision users and what sort of accounts they can provision."
+    },
+    {
+      "id": "WSTG-IDNT-04",
+      "canonical_name": "Testing for Account Enumeration and Guessable User Account",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Identity Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-idnt-04",
+        "WSTG-IDNT-04",
+        "testing for account enumeration and gues"
+      ],
+      "tools": [
+        "browser",
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Account Enumeration and Guessable User Account",
+        "Generic login error statement check, return codes/parameter values, enumerate all possible valid userids (Login system, Forgot password)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Generic login error statement check, return codes/parameter values, enumerate all possible valid userids (Login system, Forgot password)"
+    },
+    {
+      "id": "WSTG-IDNT-05",
+      "canonical_name": "Testing for Weak or unenforced username policy",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Identity Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-idnt-05",
+        "WSTG-IDNT-05",
+        "testing for weak or unenforced username "
+      ],
+      "tools": [
+        "browser",
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Weak or unenforced username policy",
+        "User account names are often highly structured (e.g. Joe Bloggs account name is jbloggs and Fred Nurks account name is fnurks) and valid account names can easily be guessed.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "User account names are often highly structured (e.g. Joe Bloggs account name is jbloggs and Fred Nurks account name is fnurks) and valid account names can easily be guessed."
+    },
+    {
+      "id": "WSTG-ATHN-01",
+      "canonical_name": "Testing for Credentials Transported over an Encrypted Channel",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authentication Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-319",
       "severity_default": "High",
-      "agent": "web_agent",
-      "tools": ["burp", "manual"],
-      "aliases": ["idor", "broken object level authorization", "bola"],
-      "preconditions": ["authenticated_session", "object_ids_in_requests"],
-      "test_strategy": {
-        "recon_required": true,
-        "auth_required": true,
-        "input_discovery": true
-      },
-      "test_steps": [
-        "Identify endpoints that take object IDs (user_id, order_id, file_id)",
-        "Authenticate as User A, note object IDs",
-        "Authenticate as User B, attempt to access User A objects",
-        "Verify if authorization is enforced at object level"
+      "aliases": [
+        "wstg-athn-01",
+        "WSTG-ATHN-01",
+        "testing for credentials transported over"
       ],
-      "expected_evidence": ["unauthorized_object_access", "cross_user_data_visible"],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Credentials Transported over an Encrypted Channel",
+        "Check referrer whether its HTTP or HTTPs. Sending data through HTTP and HTTPS.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
       "evidence_requirements": {
-        "request": true, "response": true, "payload": false, "screenshot": false
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
       },
-      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html"
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check referrer whether its HTTP or HTTPs. Sending data through HTTP and HTTPS."
     },
-
     {
-      "id": "WEB-006",
-      "canonical_name": "Session Fixation",
-      "category": "session",
+      "id": "WSTG-ATHN-02",
+      "canonical_name": "Testing for default credentials",
       "domain": "web",
-      "source": "internal",
-      "owasp_ref": "A07:2021",
+      "agent": "web_agent",
+      "category": "Authentication Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athn-02",
+        "WSTG-ATHN-02",
+        "testing for default credentials"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "hydra"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for default credentials",
+        "Testing for default credentials of common applications, Testing for default password of new accounts.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Testing for default credentials of common applications, Testing for default password of new accounts."
+    },
+    {
+      "id": "WSTG-ATHN-03",
+      "canonical_name": "Testing for Weak lock out mechanism",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authentication Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athn-03",
+        "WSTG-ATHN-03",
+        "testing for weak lock out mechanism"
+      ],
+      "tools": [
+        "browser"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Weak lock out mechanism",
+        "Evaluate the account lockout mechanism’s ability to mitigate brute force password guessing. Evaluate the unlock mechanism’s resistance to unauthorized account unlocking.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Evaluate the account lockout mechanism’s ability to mitigate brute force password guessing. Evaluate the unlock mechanism’s resistance to unauthorized account unlocking."
+    },
+    {
+      "id": "WSTG-ATHN-04",
+      "canonical_name": "Testing for bypassing authentication schema",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authentication Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athn-04",
+        "WSTG-ATHN-04",
+        "testing for bypassing authentication sch"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for bypassing authentication schema",
+        "Force browsing (/admin/main.php, /page.asp?authenticated=yes), Parameter Modification, Session ID prediction, SQL Injection",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Force browsing (/admin/main.php, /page.asp?authenticated=yes), Parameter Modification, Session ID prediction, SQL Injection"
+    },
+    {
+      "id": "WSTG-ATHN-05",
+      "canonical_name": "Test remember password functionality",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authentication Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athn-05",
+        "WSTG-ATHN-05",
+        "test remember password functionality"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test remember password functionality",
+        "Look for passwords being stored in a cookie. Examine the cookies stored by the application. Verify that the credentials are not stored in clear text, but are hashed. Autocompleted=off?",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Look for passwords being stored in a cookie. Examine the cookies stored by the application. Verify that the credentials are not stored in clear text, but are hashed. Autocompleted=off?"
+    },
+    {
+      "id": "WSTG-ATHN-06",
+      "canonical_name": "Testing for Browser cache weakness",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authentication Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athn-06",
+        "WSTG-ATHN-06",
+        "testing for browser cache weakness"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "firefox_add-on_cacheviewer2"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Browser cache weakness",
+        "Check browser history issue by clicking \"Back\" button after logging out. Check browser cache issue from HTTP response headers (Cache-Control: no-cache)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check browser history issue by clicking \"Back\" button after logging out. Check browser cache issue from HTTP response headers (Cache-Control: no-cache)"
+    },
+    {
+      "id": "WSTG-ATHN-07",
+      "canonical_name": "Testing for Weak password policy",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authentication Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athn-07",
+        "WSTG-ATHN-07",
+        "testing for weak password policy"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "hydra"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Weak password policy",
+        "Determine the resistance of the application against brute force password guessing using available password dictionaries by evaluating the length, complexity, reuse and aging requirements of passwords.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Determine the resistance of the application against brute force password guessing using available password dictionaries by evaluating the length, complexity, reuse and aging requirements of passwords."
+    },
+    {
+      "id": "WSTG-ATHN-08",
+      "canonical_name": "Testing for Weak security question/answer",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authentication Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athn-08",
+        "WSTG-ATHN-08",
+        "testing for weak security question/answe"
+      ],
+      "tools": [
+        "browser"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Weak security question/answer",
+        "Testing for weak pre-generated questions, Testing for weak self-generated question, Testing for brute-forcible answers (Unlimited attempts?)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Testing for weak pre-generated questions, Testing for weak self-generated question, Testing for brute-forcible answers (Unlimited attempts?)"
+    },
+    {
+      "id": "WSTG-ATHN-09",
+      "canonical_name": "Testing for weak password change or reset functionalities",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authentication Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athn-09",
+        "WSTG-ATHN-09",
+        "testing for weak password change or rese"
+      ],
+      "tools": [
+        "browser",
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for weak password change or reset functionalities",
+        "Test password reset (Display old password in plain-text?, Send via email?, Random token on confirmation email ?), Test password change (Need old password?), CSRF vulnerability ?",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Test password reset (Display old password in plain-text?, Send via email?, Random token on confirmation email ?), Test password change (Need old password?), CSRF vulnerability ?"
+    },
+    {
+      "id": "WSTG-ATHN-10",
+      "canonical_name": "Testing for Weaker authentication in alternative channel",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authentication Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athn-10",
+        "WSTG-ATHN-10",
+        "testing for weaker authentication in alt"
+      ],
+      "tools": [
+        "browser"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Weaker authentication in alternative channel",
+        "Understand the primary mechanism and Identify other channels (Mobile App, Call center, SSO)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Understand the primary mechanism and Identify other channels (Mobile App, Call center, SSO)"
+    },
+    {
+      "id": "WSTG-ATHZ-01",
+      "canonical_name": "Testing Directory Traversal - File Include",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authorization Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-22",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athz-01",
+        "WSTG-ATHZ-01",
+        "testing directory traversal - file inclu"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "wfuzz"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing Directory Traversal - File Include",
+        "dot-dot-slash attack (../), Directory traversal, Local File inclusion/Remote File Inclusion.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "dot-dot-slash attack (../), Directory traversal, Local File inclusion/Remote File Inclusion."
+    },
+    {
+      "id": "WSTG-ATHZ-02",
+      "canonical_name": "Testing for bypassing authorization schema",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authorization Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-285",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athz-02",
+        "WSTG-ATHZ-02",
+        "testing for bypassing authorization sche"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for bypassing authorization schema",
+        "Access a resource without authentication?, Bypass ACL, Force browsing (/admin/adduser.jsp)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Access a resource without authentication?, Bypass ACL, Force browsing (/admin/adduser.jsp)"
+    },
+    {
+      "id": "WSTG-ATHZ-03",
+      "canonical_name": "Testing for Privilege Escalation",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authorization Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-269",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athz-03",
+        "WSTG-ATHZ-03",
+        "testing for privilege escalation"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Privilege Escalation",
+        "Testing for role/privilege manipulate the values of hidden variables. Change some param groupid=2 to groupid=1",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Testing for role/privilege manipulate the values of hidden variables. Change some param groupid=2 to groupid=1"
+    },
+    {
+      "id": "WSTG-ATHZ-04",
+      "canonical_name": "Testing for Insecure Direct Object References",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Authorization Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-639",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-athz-04",
+        "WSTG-ATHZ-04",
+        "testing for insecure direct object refer"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Insecure Direct Object References",
+        "Force changing parameter value (?invoice=123 -> ?invoice=456)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Force changing parameter value (?invoice=123 -> ?invoice=456)"
+    },
+    {
+      "id": "WSTG-SESS-01",
+      "canonical_name": "Testing for Bypassing Session Management Schema",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Session Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
       "cwe": "CWE-384",
       "severity_default": "High",
-      "agent": "web_agent",
-      "tools": ["zap", "manual"],
-      "aliases": ["session fixation"],
-      "preconditions": ["session_management"],
-      "test_strategy": {
-        "recon_required": false,
-        "auth_required": true,
-        "input_discovery": false
-      },
-      "test_steps": [
-        "Obtain a pre-authentication session token",
-        "Authenticate using that token",
-        "Check if the session token changes after login",
-        "If token is same before/after — session fixation confirmed"
+      "aliases": [
+        "wstg-sess-01",
+        "WSTG-SESS-01",
+        "testing for bypassing session management"
       ],
-      "expected_evidence": ["session_token_unchanged_after_login"],
-      "evidence_requirements": {
-        "request": true, "response": true, "payload": false, "screenshot": false
-      },
-      "remediation_ref": "https://owasp.org/www-community/attacks/Session_fixation"
-    },
-
-    {
-      "id": "WEB-007",
-      "canonical_name": "Missing Security Headers",
-      "category": "configuration",
-      "domain": "web",
-      "source": "internal",
-      "owasp_ref": "A05:2021",
-      "cwe": "CWE-693",
-      "severity_default": "Low",
-      "agent": "web_agent",
-      "tools": ["httpx", "zap"],
-      "aliases": ["missing headers", "security headers", "hsts missing", "csp missing"],
-      "preconditions": ["http_accessible"],
-      "test_strategy": {
-        "recon_required": false,
-        "auth_required": false,
-        "input_discovery": false
-      },
-      "test_steps": [
-        "Send HTTP GET to target",
-        "Inspect response headers",
-        "Check for: Strict-Transport-Security, Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy"
+      "tools": [
+        "burp",
+        "forcessl",
+        "zap",
+        "cookiedigger"
       ],
-      "expected_evidence": ["missing_header_name", "response_headers_block"],
-      "evidence_requirements": {
-        "request": true, "response": true, "payload": false, "screenshot": false
-      },
-      "remediation_ref": "https://owasp.org/www-project-secure-headers/"
-    },
-
-    {
-      "id": "WEB-008",
-      "canonical_name": "Sensitive File Exposure",
-      "category": "information_disclosure",
-      "domain": "web",
-      "source": "internal",
-      "owasp_ref": "A05:2021",
-      "cwe": "CWE-538",
-      "severity_default": "Critical",
-      "agent": "web_agent",
-      "tools": ["httpx", "nuclei"],
-      "aliases": [".env exposed", ".git exposed", "backup file exposed", "aws credentials exposed"],
-      "preconditions": ["http_accessible"],
-      "test_strategy": {
-        "recon_required": false,
-        "auth_required": false,
-        "input_discovery": false
-      },
       "test_steps": [
-        "Probe common sensitive paths: /.env, /.git/HEAD, /backup.zip, /.aws/credentials",
-        "Check response status code and body for sensitive content",
-        "Verify content is genuine (not a honeypot or redirect)"
+        "Identify test scope for: Testing for Bypassing Session Management Schema",
+        "SessionID analysis prediction, unencrypted cookie transport, brute-force.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
       ],
-      "expected_evidence": ["http_200_on_sensitive_path", "secrets_in_response"],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
       "evidence_requirements": {
-        "request": true, "response": true, "payload": false, "screenshot": false
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
       },
-      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information"
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "SessionID analysis prediction, unencrypted cookie transport, brute-force."
     },
-
     {
-      "id": "WEB-009",
-      "canonical_name": "Insecure Cookie Configuration",
-      "category": "session",
+      "id": "WSTG-SESS-02",
+      "canonical_name": "Testing for Cookies attributes",
       "domain": "web",
-      "source": "internal",
-      "owasp_ref": "A02:2021",
-      "cwe": "CWE-614",
-      "severity_default": "Medium",
       "agent": "web_agent",
-      "tools": ["httpx", "zap"],
-      "aliases": ["insecure cookies", "missing httponly", "missing secure flag", "missing samesite"],
-      "preconditions": ["http_accessible", "session_cookies_present"],
-      "test_strategy": {
-        "recon_required": false,
-        "auth_required": false,
-        "input_discovery": false
-      },
-      "test_steps": [
-        "Capture Set-Cookie response headers",
-        "Check for HttpOnly flag absence",
-        "Check for Secure flag absence",
-        "Check for SameSite attribute absence",
-        "Identify if affected cookie is a session/auth token"
-      ],
-      "expected_evidence": ["missing_httponly", "missing_secure", "missing_samesite", "cookie_value"],
-      "evidence_requirements": {
-        "request": true, "response": true, "payload": false, "screenshot": false
-      },
-      "remediation_ref": "https://owasp.org/www-community/controls/SecureCookieAttribute"
-    },
-
-    {
-      "id": "WEB-010",
-      "canonical_name": "Server-Side Request Forgery (SSRF)",
-      "category": "injection",
-      "domain": "web",
-      "source": "owasp_wstg",
-      "owasp_ref": "A10:2021",
-      "cwe": "CWE-918",
+      "category": "Session Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
       "severity_default": "High",
-      "agent": "web_agent",
-      "tools": ["zap", "manual"],
-      "aliases": ["ssrf", "server side request forgery"],
-      "preconditions": ["url_parameters_present", "server_makes_outbound_requests"],
-      "test_strategy": {
-        "recon_required": true,
-        "auth_required": false,
-        "input_discovery": true
-      },
-      "test_steps": [
-        "Identify parameters that accept URLs or file paths",
-        "Inject internal addresses: http://127.0.0.1, http://169.254.169.254/latest/meta-data/",
-        "Check if server fetches and returns internal content",
-        "Test cloud metadata endpoints if applicable"
+      "aliases": [
+        "wstg-sess-02",
+        "WSTG-SESS-02",
+        "testing for cookies attributes"
       ],
-      "expected_evidence": ["internal_content_returned", "metadata_api_response"],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Cookies attributes",
+        "Check HTTPOnly and Secure flag, expiration, inspect for sensitive data.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
       "evidence_requirements": {
-        "request": true, "response": true, "payload": true, "screenshot": false
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
       },
-      "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check HTTPOnly and Secure flag, expiration, inspect for sensitive data."
     },
-
+    {
+      "id": "WSTG-SESS-03",
+      "canonical_name": "Testing for Session Fixation",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Session Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-384",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-sess-03",
+        "WSTG-SESS-03",
+        "testing for session fixation"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Session Fixation",
+        "The application doesn't renew the cookie after a successfully user authentication.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "The application doesn't renew the cookie after a successfully user authentication."
+    },
+    {
+      "id": "WSTG-SESS-04",
+      "canonical_name": "Testing for Exposed Session Variables",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Session Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-sess-04",
+        "WSTG-SESS-04",
+        "testing for exposed session variables"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Exposed Session Variables",
+        "Encryption & Reuse of session Tokens vulnerabilities, Send sessionID with GET method ?",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Encryption & Reuse of session Tokens vulnerabilities, Send sessionID with GET method ?"
+    },
+    {
+      "id": "WSTG-SESS-05",
+      "canonical_name": "Testing for Cross Site Request Forgery",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Session Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-352",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-sess-05",
+        "WSTG-SESS-05",
+        "testing for cross site request forgery"
+      ],
+      "tools": [
+        "burp",
+        "burpy",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Cross Site Request Forgery",
+        "URL analysis, Direct access to functions without any token.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "URL analysis, Direct access to functions without any token."
+    },
+    {
+      "id": "WSTG-SESS-06",
+      "canonical_name": "Testing for logout functionality",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Session Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-sess-06",
+        "WSTG-SESS-06",
+        "testing for logout functionality"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for logout functionality",
+        "Check reuse session after logout both server-side and SSO.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check reuse session after logout both server-side and SSO."
+    },
+    {
+      "id": "WSTG-SESS-07",
+      "canonical_name": "Test Session Timeout",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Session Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-sess-07",
+        "WSTG-SESS-07",
+        "test session timeout"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Session Timeout",
+        "Check session timeout, after the timeout has passed, all session tokens should be destroyed or be unusable.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check session timeout, after the timeout has passed, all session tokens should be destroyed or be unusable."
+    },
+    {
+      "id": "WSTG-SESS-08",
+      "canonical_name": "Testing for Session puzzling",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Session Management Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-sess-08",
+        "WSTG-SESS-08",
+        "testing for session puzzling"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Session puzzling",
+        "The application uses the same session variable for more than one purpose. An attacker can potentially access pages in an order unanticipated by the developers so that the session variable is set in one context and then used in another.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "The application uses the same session variable for more than one purpose. An attacker can potentially access pages in an order unanticipated by the developers so that the session variable is set in one context and then used in another."
+    },
+    {
+      "id": "WSTG-INPV-01",
+      "canonical_name": "Testing for Reflected Cross Site Scripting",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-79",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-01",
+        "WSTG-INPV-01",
+        "testing for reflected cross site scripti"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "xenotix_xss"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Reflected Cross Site Scripting",
+        "Check for input validation, Replace the vector used to identify XSS, XSS with HTTP Parameter Pollution.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check for input validation, Replace the vector used to identify XSS, XSS with HTTP Parameter Pollution."
+    },
+    {
+      "id": "WSTG-INPV-02",
+      "canonical_name": "Testing for Stored Cross Site Scripting",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-79",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-02",
+        "WSTG-INPV-02",
+        "testing for stored cross site scripting"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "beef",
+        "xss_proxy"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Stored Cross Site Scripting",
+        "Check input forms/Upload forms and analyze HTML codes, Leverage XSS with BeEF",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check input forms/Upload forms and analyze HTML codes, Leverage XSS with BeEF"
+    },
+    {
+      "id": "WSTG-INPV-03",
+      "canonical_name": "Testing for HTTP Verb Tampering",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-03",
+        "WSTG-INPV-03",
+        "testing for http verb tampering"
+      ],
+      "tools": [
+        "netcat"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for HTTP Verb Tampering",
+        "Craft custom HTTP requests to test the other methods to bypass URL authentication and authorization.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Craft custom HTTP requests to test the other methods to bypass URL authentication and authorization."
+    },
+    {
+      "id": "WSTG-INPV-04",
+      "canonical_name": "Testing for HTTP Parameter pollution",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-04",
+        "WSTG-INPV-04",
+        "testing for http parameter pollution"
+      ],
+      "tools": [
+        "zap",
+        "hpp_finder_(chrome_plugin)"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for HTTP Parameter pollution",
+        "Identify any form or action that allows user-supplied input to bypass Input validation and filters using HPP",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Identify any form or action that allows user-supplied input to bypass Input validation and filters using HPP"
+    },
+    {
+      "id": "WSTG-INPV-05",
+      "canonical_name": "Testing for SQL Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-89",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-05",
+        "WSTG-INPV-05",
+        "testing for sql injection"
+      ],
+      "tools": [
+        "burp_proxy_(sqlipy)",
+        "sqlmap",
+        "pangolin",
+        "seclists_(fuzzdb)"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for SQL Injection",
+        "Union, Boolean, Error based, Out-of-band, Time delay.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Union, Boolean, Error based, Out-of-band, Time delay."
+    },
+    {
+      "id": "WSTG-INPV-06",
+      "canonical_name": "Testing for LDAP Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-90",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-06",
+        "WSTG-INPV-06",
+        "testing for ldap injection"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for LDAP Injection",
+        "/ldapsearch?user=* user=*user=*)(uid=*))(|(uid=* pass=password",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "/ldapsearch?user=* user=*user=*)(uid=*))(|(uid=* pass=password"
+    },
+    {
+      "id": "WSTG-INPV-07",
+      "canonical_name": "Testing for XML Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-91",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-07",
+        "WSTG-INPV-07",
+        "testing for xml injection"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "wfuzz"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for XML Injection",
+        "Check with XML Meta Characters ', \" , <>, <!--/-->, &, <![CDATA[ / ]]>, XXE, TAG",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check with XML Meta Characters ', \" , <>, <!--/-->, &, <![CDATA[ / ]]>, XXE, TAG"
+    },
+    {
+      "id": "WSTG-INPV-08",
+      "canonical_name": "Testing for SSI Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-08",
+        "WSTG-INPV-08",
+        "testing for ssi injection"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for SSI Injection",
+        "• Presense of .shtml extension • Check for these characters < ! # = / . \" - > and [a-zA-Z0-9] • include String = <!--#include virtual=\"/etc/passwd\" -->",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "• Presense of .shtml extension • Check for these characters < ! # = / . \" - > and [a-zA-Z0-9] • include String = <!--#include virtual=\"/etc/passwd\" -->"
+    },
+    {
+      "id": "WSTG-INPV-09",
+      "canonical_name": "Testing for XPath Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-09",
+        "WSTG-INPV-09",
+        "testing for xpath injection"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for XPath Injection",
+        "Check for XML error enumeration by supplying a single quote (') Username: ‘ or ‘1’ = ‘1 Password: ‘ or ‘1’ = ‘1",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check for XML error enumeration by supplying a single quote (') Username: ‘ or ‘1’ = ‘1 Password: ‘ or ‘1’ = ‘1"
+    },
+    {
+      "id": "WSTG-INPV-10",
+      "canonical_name": "IMAP/SMTP Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-10",
+        "WSTG-INPV-10",
+        "imap/smtp injection"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: IMAP/SMTP Injection",
+        "• Identifying vulnerable parameters with special characters (i.e.: \\, ‘, “, @, #, !, |) • Understanding the data flow and deployment structure of the client • IMAP/SMTP command injection (Header, Body, Footer)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "• Identifying vulnerable parameters with special characters (i.e.: \\, ‘, “, @, #, !, |) • Understanding the data flow and deployment structure of the client • IMAP/SMTP command injection (Header, Body, Footer)"
+    },
+    {
+      "id": "WSTG-INPV-11",
+      "canonical_name": "Testing for Code Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-94",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-11",
+        "WSTG-INPV-11",
+        "testing for code injection"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "liffy",
+        "panoptic"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Code Injection",
+        "Enter OS commands in the input field. ?arg=1; system('id')",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Enter OS commands in the input field. ?arg=1; system('id')"
+    },
+    {
+      "id": "WSTG-INPV-12",
+      "canonical_name": "Testing for Command Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-78",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-12",
+        "WSTG-INPV-12",
+        "testing for command injection"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "commix"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Command Injection",
+        "Understand the application platform, OS, folder structure, relative path and execute OS commands on a Web server. %3Bcat%20/etc/passwd test.pdf+|+Dir C:\\",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Understand the application platform, OS, folder structure, relative path and execute OS commands on a Web server. %3Bcat%20/etc/passwd test.pdf+|+Dir C:\\"
+    },
+    {
+      "id": "WSTG-INPV-13",
+      "canonical_name": "Testing for Buffer overflow",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-13",
+        "WSTG-INPV-13",
+        "testing for buffer overflow"
+      ],
+      "tools": [
+        "immunity_canvas",
+        "spike",
+        "msf",
+        "nessus"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Buffer overflow",
+        "• Testing for heap overflow vulnerability • Testing for stack overflow vulnerability • Testing for format string vulnerability",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "• Testing for heap overflow vulnerability • Testing for stack overflow vulnerability • Testing for format string vulnerability"
+    },
+    {
+      "id": "WSTG-INPV-14",
+      "canonical_name": "Testing for incubated vulnerabilities",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-14",
+        "WSTG-INPV-14",
+        "testing for incubated vulnerabilities"
+      ],
+      "tools": [
+        "burp",
+        "beef",
+        "msf"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for incubated vulnerabilities",
+        "File Upload, Stored XSS , SQL/XPATH Injection, Misconfigured servers (Tomcat, Plesk, Cpanel)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "File Upload, Stored XSS , SQL/XPATH Injection, Misconfigured servers (Tomcat, Plesk, Cpanel)"
+    },
+    {
+      "id": "WSTG-INPV-15",
+      "canonical_name": "Testing for HTTP Splitting/Smuggling",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-444",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-15",
+        "WSTG-INPV-15",
+        "testing for http splitting/smuggling"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "netcat"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for HTTP Splitting/Smuggling",
+        "param=foobar%0d%0aContent-Length:%200%0d%0a%0d%0aHTTP/1.1%20200%20OK%0d%0aContent-Type:%20text/html%0d%0aContent-Length:%2035%0d%0a%0d%0a<html>Sorry,%20System%20Down</html>",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "param=foobar%0d%0aContent-Length:%200%0d%0a%0d%0aHTTP/1.1%20200%20OK%0d%0aContent-Type:%20text/html%0d%0aContent-Length:%2035%0d%0a%0d%0a<html>Sorry,%20System%20Down</html>"
+    },
+    {
+      "id": "WSTG-INPV-16",
+      "canonical_name": "Testing for HTTP Incoming Requests",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-16",
+        "WSTG-INPV-16",
+        "testing for http incoming requests"
+      ],
+      "tools": [
+        "fiddler",
+        "tcpdump",
+        "charles_web_debugging_proxy"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for HTTP Incoming Requests",
+        "Monitor all incoming and outgoing HTTP requests to the Web Server to inspect any suspicious requests. Monitor HTTP traffic without changes of end user Browser proxy or client-side application.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Monitor all incoming and outgoing HTTP requests to the Web Server to inspect any suspicious requests. Monitor HTTP traffic without changes of end user Browser proxy or client-side application."
+    },
+    {
+      "id": "WSTG-INPV-17",
+      "canonical_name": "Testing for Host Header Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-644",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-17",
+        "WSTG-INPV-17",
+        "testing for host header injection"
+      ],
+      "tools": [],
+      "test_steps": [
+        "Identify test scope for: Testing for Host Header Injection",
+        "initial testing is as simple as supplying another domain (i.e. attacker.com) into the Host header field. It is how the web server processes the header value that dictates the impact. The attack is valid when the web server processes the input to send the request to an attacker-controlled host that resides at the supplied domain, and not to an internal virtual host that resides on the web server.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "initial testing is as simple as supplying another domain (i.e. attacker.com) into the Host header field. It is how the web server processes the header value that dictates the impact. The attack is valid when the web server processes the input to send the request to an attacker-controlled host that resides at the supplied domain, and not to an internal virtual host that resides on the web server."
+    },
+    {
+      "id": "WSTG-INPV-18",
+      "canonical_name": "Testing for Server-side Template Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Data Validation Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-94",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-inpv-18",
+        "WSTG-INPV-18",
+        "testing for server-side template injecti"
+      ],
+      "tools": [
+        "tplmap",
+        "backslash_powered_scanner_(burp_suite_injection)"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Server-side Template Injection",
+        "SSTI vulnerabilities exist either in text or code context. In plaintext context users allowed to use freeform 'text' with direct HTML code. In code context the user input may also be placed within a template statement (eg. in a variable name). In both cases the testing methodology has the following steps:",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "SSTI vulnerabilities exist either in text or code context. In plaintext context users allowed to use freeform 'text' with direct HTML code. In code context the user input may also be placed within a template statement (eg. in a variable name). In both cases the testing methodology has the following steps:"
+    },
+    {
+      "id": "WSTG-ERRH-01",
+      "canonical_name": "Analysis of Error Codes",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Error Handling",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-errh-01",
+        "WSTG-ERRH-01",
+        "analysis of error codes"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Analysis of Error Codes",
+        "Locate error codes generated from applications or web servers. Collect sensitive information from that errors (Web Server, Application Server, Database)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Locate error codes generated from applications or web servers. Collect sensitive information from that errors (Web Server, Application Server, Database)"
+    },
+    {
+      "id": "WSTG-ERRH-02",
+      "canonical_name": "Analysis of Stack Traces",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Error Handling",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Low",
+      "aliases": [
+        "wstg-errh-02",
+        "WSTG-ERRH-02",
+        "analysis of stack traces"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Analysis of Stack Traces",
+        "• Invalid Input / Empty inputs • Input that contains non alphanumeric characters or query syn tax • Access to internal pages without authentication • Bypassing application flow",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "• Invalid Input / Empty inputs • Input that contains non alphanumeric characters or query syn tax • Access to internal pages without authentication • Bypassing application flow"
+    },
+    {
+      "id": "WSTG-CRYP-01",
+      "canonical_name": "Testing for Weak SSL/TSL Ciphers, Insufficient Transport Layer Protection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Cryptography",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-326",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-cryp-01",
+        "WSTG-CRYP-01",
+        "testing for weak ssl/tsl ciphers, insuff"
+      ],
+      "tools": [
+        "testssl",
+        "ssl_breacher"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Weak SSL/TSL Ciphers, Insufficient Transport Layer Protection",
+        "Identify SSL service, Idectify weak ciphers/protocols (ie. RC4, BEAST, CRIME, POODLE)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Identify SSL service, Idectify weak ciphers/protocols (ie. RC4, BEAST, CRIME, POODLE)"
+    },
+    {
+      "id": "WSTG-CRYP-02",
+      "canonical_name": "Testing for Padding Oracle",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Cryptography",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "High",
+      "aliases": [
+        "wstg-cryp-02",
+        "WSTG-CRYP-02",
+        "testing for padding oracle"
+      ],
+      "tools": [
+        "padbuster",
+        "poracle",
+        "python-paddingoracle",
+        "poet"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Padding Oracle",
+        "Compare the responses in three different states: • Cipher text gets decrypted, resulting data is correct. • Cipher text gets decrypted, resulting data is garbled and causes some exception or error handling in the application logic. • Cipher text decryption fails due to padding errors.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Compare the responses in three different states: • Cipher text gets decrypted, resulting data is correct. • Cipher text gets decrypted, resulting data is garbled and causes some exception or error handling in the application logic. • Cipher text decryption fails due to padding errors."
+    },
+    {
+      "id": "WSTG-CRYP-03",
+      "canonical_name": "Testing for Sensitive information sent via unencrypted channels",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Cryptography",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-319",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-cryp-03",
+        "WSTG-CRYP-03",
+        "testing for sensitive information sent v"
+      ],
+      "tools": [
+        "burp",
+        "zap",
+        "curl"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Sensitive information sent via unencrypted channels",
+        "Check sensitive data during the transmission: • Information used in authentication (e.g. Credentials, PINs, Session identifiers, Tokens, Cookies…) • Information protected by laws, regulations or specific organizational policy (e.g. Credit Cards, Customers data)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check sensitive data during the transmission: • Information used in authentication (e.g. Credentials, PINs, Session identifiers, Tokens, Cookies…) • Information protected by laws, regulations or specific organizational policy (e.g. Credit Cards, Customers data)"
+    },
+    {
+      "id": "WSTG-CRYP-04",
+      "canonical_name": "Testing for Weak Encryption",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Cryptography",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-327",
+      "severity_default": "High",
+      "aliases": [
+        "wstg-cryp-04",
+        "WSTG-CRYP-04",
+        "testing for weak encryption"
+      ],
+      "tools": [
+        "nessus"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Weak Encryption",
+        "Incorrect uses of encryption algorithm may result in sensitive data exposure, key leakage, broken authentication, insecure session and spoofing attack. There are some encryption or hash algorithm is known to be weak and not suggested to be used anymore such as MD5 and RC4.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Incorrect uses of encryption algorithm may result in sensitive data exposure, key leakage, broken authentication, insecure session and spoofing attack. There are some encryption or hash algorithm is known to be weak and not suggested to be used anymore such as MD5 and RC4."
+    },
+    {
+      "id": "WSTG-BUSL-01",
+      "canonical_name": "Test Business Logic Data Validation",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Business logic Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-busl-01",
+        "WSTG-BUSL-01",
+        "test business logic data validation"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Business Logic Data Validation",
+        "• Looking for data entry points or hand off points between systems or software. • Once found try to insert logically invalid data into the application/system.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "• Looking for data entry points or hand off points between systems or software. • Once found try to insert logically invalid data into the application/system."
+    },
+    {
+      "id": "WSTG-BUSL-02",
+      "canonical_name": "Test Ability to Forge Requests",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Business logic Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-busl-02",
+        "WSTG-BUSL-02",
+        "test ability to forge requests"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Ability to Forge Requests",
+        "• Looking for guessable, predictable or hidden functionality of fields. • Once found try to insert logically valid data into the application/system allowing the user go through the application/system against the normal busineess logic workflow.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "• Looking for guessable, predictable or hidden functionality of fields. • Once found try to insert logically valid data into the application/system allowing the user go through the application/system against the normal busineess logic workflow."
+    },
+    {
+      "id": "WSTG-BUSL-03",
+      "canonical_name": "Test Integrity Checks",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Business logic Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-busl-03",
+        "WSTG-BUSL-03",
+        "test integrity checks"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Integrity Checks",
+        "•Looking for parts of the application/system (components i.e. For example, input fields, databases or logs) that move, store or handle data/information. • For each identified component determine what type of data/information is logically acceptable and what types the application/system should guard against. Also, consider who according to the business logic is allowed to insert, update and delete data/information and in each component. • Attempt to insert, update or edit delete the data/information values with invalid data/information into each component (i.e. input, database, or log) by users that .should not be allowed per the busines logic workflow.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "•Looking for parts of the application/system (components i.e. For example, input fields, databases or logs) that move, store or handle data/information. • For each identified component determine what type of data/information is logically acceptable and what types the application/system should guard against. Also, consider who according to the business logic is allowed to insert, update and delete data/information and in each component. • Attempt to insert, update or edit delete the data/information values with invalid data/information into each component (i.e. input, database, or log) by users that .should not be allowed per the busines logic workflow."
+    },
+    {
+      "id": "WSTG-BUSL-04",
+      "canonical_name": "Test for Process Timing",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Business logic Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-busl-04",
+        "WSTG-BUSL-04",
+        "test for process timing"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test for Process Timing",
+        "• Looking for application/system functionality that may be impacted by time. Such as execution time or actions that help users predict a future outcome or allow one to circumvent any part of the business logic or workflow. For example, not completing transactions in an expected time. • Develop and execute the mis-use cases ensuring that attackers can not gain an advantage based on any timing.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "• Looking for application/system functionality that may be impacted by time. Such as execution time or actions that help users predict a future outcome or allow one to circumvent any part of the business logic or workflow. For example, not completing transactions in an expected time. • Develop and execute the mis-use cases ensuring that attackers can not gain an advantage based on any timing."
+    },
+    {
+      "id": "WSTG-BUSL-05",
+      "canonical_name": "Test Number of Times a Function Can be Used Limits",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Business logic Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-busl-05",
+        "WSTG-BUSL-05",
+        "test number of times a function can be u"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Number of Times a Function Can be Used Limits",
+        "• Looking for functions or features in the application or system that should not be executed more that a single time or specified number of times during the business logic workflow. • For each of the functions and features found that should only be executed a single time or specified number of times during the business logic workflow, develop abuse/misuse cases that may allow a user to execute more than the allowable number of times.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "• Looking for functions or features in the application or system that should not be executed more that a single time or specified number of times during the business logic workflow. • For each of the functions and features found that should only be executed a single time or specified number of times during the business logic workflow, develop abuse/misuse cases that may allow a user to execute more than the allowable number of times."
+    },
+    {
+      "id": "WSTG-BUSL-06",
+      "canonical_name": "Testing for the Circumvention of Work Flows",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Business logic Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-busl-06",
+        "WSTG-BUSL-06",
+        "testing for the circumvention of work fl"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for the Circumvention of Work Flows",
+        "• Looking for methods to skip or go to steps in the application process in a different order from the designed/intended business logic flow. • For each method develop a misuse case and try to circumvent or perform an action that is \"not acceptable\" per the the business logic workflow.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "• Looking for methods to skip or go to steps in the application process in a different order from the designed/intended business logic flow. • For each method develop a misuse case and try to circumvent or perform an action that is \"not acceptable\" per the the business logic workflow."
+    },
+    {
+      "id": "WSTG-BUSL-07",
+      "canonical_name": "Test Defenses Against Application Mis-use",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Business logic Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-busl-07",
+        "WSTG-BUSL-07",
+        "test defenses against application mis-us"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Defenses Against Application Mis-use",
+        "Measures that might indicate the application has in-built self-defense: • Changed responses • Blocked requests • Actions that log a user out or lock their account",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Measures that might indicate the application has in-built self-defense: • Changed responses • Blocked requests • Actions that log a user out or lock their account"
+    },
+    {
+      "id": "WSTG-BUSL-08",
+      "canonical_name": "Test Upload of Unexpected File Types",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Business logic Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-busl-08",
+        "WSTG-BUSL-08",
+        "test upload of unexpected file types"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Upload of Unexpected File Types",
+        "• Review the project documentation and perform some exploratory testing looking for file types that should be \"unsupported\" by the application/system. • Try to upload these “unsupported” files an verify that it are properly rejected. • If multiple files can be uploaded at once, there must be tests in place to verify that each file is properly evaluated.  PS. file.phtml, shell.phPWND, SHELL~1.PHP",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "• Review the project documentation and perform some exploratory testing looking for file types that should be \"unsupported\" by the application/system. • Try to upload these “unsupported” files an verify that it are properly rejected. • If multiple files can be uploaded at once, there must be tests in place to verify that each file is properly evaluated.  PS. file.phtml, shell.phPWND, SHELL~1.PHP"
+    },
+    {
+      "id": "WSTG-BUSL-09",
+      "canonical_name": "Test Upload of Malicious Files",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Business logic Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-busl-09",
+        "WSTG-BUSL-09",
+        "test upload of malicious files"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Upload of Malicious Files",
+        "• Develop or acquire a known “malicious” file. • Try to upload the malicious file to the application/system and verify that it is correctly rejected. • If multiple files can be uploaded at once, there must be tests in place to verify that each file is properly evaluated.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "• Develop or acquire a known “malicious” file. • Try to upload the malicious file to the application/system and verify that it is correctly rejected. • If multiple files can be uploaded at once, there must be tests in place to verify that each file is properly evaluated."
+    },
+    {
+      "id": "WSTG-CLNT-01",
+      "canonical_name": "Testing for DOM based Cross Site Scripting",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-79",
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-01",
+        "WSTG-CLNT-01",
+        "testing for dom based cross site scripti"
+      ],
+      "tools": [
+        "burp",
+        "dominator"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for DOM based Cross Site Scripting",
+        "Test for the user inputs obtained from client-side JavaScript Objects",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Test for the user inputs obtained from client-side JavaScript Objects"
+    },
+    {
+      "id": "WSTG-CLNT-02",
+      "canonical_name": "Testing for JavaScript Execution",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-02",
+        "WSTG-CLNT-02",
+        "testing for javascript execution"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for JavaScript Execution",
+        "Inject JavaScript code: www.victim.com/?javascript:alert(1)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Inject JavaScript code: www.victim.com/?javascript:alert(1)"
+    },
+    {
+      "id": "WSTG-CLNT-03",
+      "canonical_name": "Testing for HTML Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-03",
+        "WSTG-CLNT-03",
+        "testing for html injection"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for HTML Injection",
+        "Send malicious HTML code: ?user=<img%20src='aaa'%20onerror=alert(1)>",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Send malicious HTML code: ?user=<img%20src='aaa'%20onerror=alert(1)>"
+    },
+    {
+      "id": "WSTG-CLNT-04",
+      "canonical_name": "Testing for Client Side URL Redirect",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": "CWE-601",
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-04",
+        "WSTG-CLNT-04",
+        "testing for client side url redirect"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Client Side URL Redirect",
+        "Modify untrusted URL input to a malicious site: (Open Redirect) ?redirect=www.fake-target.site",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Modify untrusted URL input to a malicious site: (Open Redirect) ?redirect=www.fake-target.site"
+    },
+    {
+      "id": "WSTG-CLNT-05",
+      "canonical_name": "Testing for CSS Injection",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-05",
+        "WSTG-CLNT-05",
+        "testing for css injection"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for CSS Injection",
+        "Inject code in the CSS context : •  www.victim.com/#red;-o-link:'javascript:alert(1)';-o-link-source:current; (Opera [8,12]) •  www.victim.com/#red;-:expression(alert(URL=1)); (IE 7/8)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Inject code in the CSS context : •  www.victim.com/#red;-o-link:'javascript:alert(1)';-o-link-source:current; (Opera [8,12]) •  www.victim.com/#red;-:expression(alert(URL=1)); (IE 7/8)"
+    },
+    {
+      "id": "WSTG-CLNT-06",
+      "canonical_name": "Testing for Client Side Resource Manipulation",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-06",
+        "WSTG-CLNT-06",
+        "testing for client side resource manipul"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Client Side Resource Manipulation",
+        "External JavaScript could be easily injected in the trusted web site www.victim.com/#http://evil.com/js.js",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "External JavaScript could be easily injected in the trusted web site www.victim.com/#http://evil.com/js.js"
+    },
+    {
+      "id": "WSTG-CLNT-07",
+      "canonical_name": "Test Cross Origin Resource Sharing",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-07",
+        "WSTG-CLNT-07",
+        "test cross origin resource sharing"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Cross Origin Resource Sharing",
+        "Check the HTTP headers in order to understand how CORS is used (Origin Header)",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Check the HTTP headers in order to understand how CORS is used (Origin Header)"
+    },
+    {
+      "id": "WSTG-CLNT-08",
+      "canonical_name": "Testing for Cross Site Flashing",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-08",
+        "WSTG-CLNT-08",
+        "testing for cross site flashing"
+      ],
+      "tools": [
+        "flashbang",
+        "flare",
+        "flasm",
+        "swfscan",
+        "swf_intruder"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Cross Site Flashing",
+        "Decompile, Undefined variables, Unsafe methods, Include malicious SWF (http://victim/file.swf?lang=http://evil",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Decompile, Undefined variables, Unsafe methods, Include malicious SWF (http://victim/file.swf?lang=http://evil"
+    },
+    {
+      "id": "WSTG-CLNT-09",
+      "canonical_name": "Testing for Clickjacking",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-09",
+        "WSTG-CLNT-09",
+        "testing for clickjacking"
+      ],
+      "tools": [
+        "burp",
+        "clickjackingtool"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Clickjacking",
+        "Discover if a website is vulnerable by loading into an iframe, create simple web page that includes a frame containing the target.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Discover if a website is vulnerable by loading into an iframe, create simple web page that includes a frame containing the target."
+    },
+    {
+      "id": "WSTG-CLNT-10",
+      "canonical_name": "Testing WebSockets",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-10",
+        "WSTG-CLNT-10",
+        "testing websockets"
+      ],
+      "tools": [
+        "burp",
+        "chrome",
+        "zap",
+        "websocket_client"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing WebSockets",
+        "Identify that the application is using WebSockets by inspecting ws:// or wss:// URI scheme.Use Google Chrome's Developer Tools to view the Network WebSocket communication. Check Origin, Confidentiality and Integrity, Authentication, Authorization, Input Sanitization",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Identify that the application is using WebSockets by inspecting ws:// or wss:// URI scheme.Use Google Chrome's Developer Tools to view the Network WebSocket communication. Check Origin, Confidentiality and Integrity, Authentication, Authorization, Input Sanitization"
+    },
+    {
+      "id": "WSTG-CLNT-11",
+      "canonical_name": "Test Web Messaging",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-11",
+        "WSTG-CLNT-11",
+        "test web messaging"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Web Messaging",
+        "Analyse JavaScript code looking for how Web Messaging is implemented. How the website is restricting messages from untrusted domain and how the data is handled even for trusted domains",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Analyse JavaScript code looking for how Web Messaging is implemented. How the website is restricting messages from untrusted domain and how the data is handled even for trusted domains"
+    },
+    {
+      "id": "WSTG-CLNT-12",
+      "canonical_name": "Test Local Storage",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-12",
+        "WSTG-CLNT-12",
+        "test local storage"
+      ],
+      "tools": [
+        "chrome",
+        "firebug",
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Test Local Storage",
+        "Determine whether the website is storing sensitive data in the storage. XSS in localstorage  http://server/StoragePOC.html#<img src=x onerror=alert(1)>",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Determine whether the website is storing sensitive data in the storage. XSS in localstorage  http://server/StoragePOC.html#<img src=x onerror=alert(1)>"
+    },
+    {
+      "id": "WSTG-CLNT-13",
+      "canonical_name": "Testing for Cross Site Script Inclusion",
+      "domain": "web",
+      "agent": "web_agent",
+      "category": "Client Side Testing",
+      "source": "OWASP WSTG v4.1",
+      "owasp_ref": "https://owasp.org/www-project-web-security-testing-guide/v42/4-Web_Application_Security_Testing/",
+      "cwe": null,
+      "severity_default": "Medium",
+      "aliases": [
+        "wstg-clnt-13",
+        "WSTG-CLNT-13",
+        "testing for cross site script inclusion"
+      ],
+      "tools": [
+        "burp",
+        "zap"
+      ],
+      "test_steps": [
+        "Identify test scope for: Testing for Cross Site Script Inclusion",
+        "Identify which endpoints are responsible for sending sensitive data, what parameters are required, and identify all relevant dynamically and statically generated JavaScript responses using authenticated user sessions. Pay special attention to sensitive data sent using JSONP. To find dynamically generated JavaScript responses, generate authenticated and unauthenticated requests, then compare them. If they're different, it means the response is dynamic; otherwise it's static. To simplify this task, a tool such as Veit Hailperin's Burp proxy plugin can be used. Make sure to check other file types in addition to JavaScript; XSSI is not limited to JavaScript files alone.",
+        "Document findings with request/response evidence",
+        "Verify exploitability and assess business impact"
+      ],
+      "expected_evidence": [
+        "HTTP request with payload",
+        "HTTP response demonstrating vulnerability"
+      ],
+      "evidence_requirements": {
+        "request": true,
+        "response": true,
+        "payload": true,
+        "screenshot": false
+      },
+      "preconditions": [],
+      "remediation_ref": "https://owasp.org/www-project-web-security-testing-guide/",
+      "description": "Identify which endpoints are responsible for sending sensitive data, what parameters are required, and identify all relevant dynamically and statically generated JavaScript responses using authenticated user sessions. Pay special attention to sensitive data sent using JSONP. To find dynamically generated JavaScript responses, generate authenticated and unauthenticated requests, then compare them. If they're different, it means the response is dynamic; otherwise it's static. To simplify this task, a tool such as Veit Hailperin's Burp proxy plugin can be used. Make sure to check other file types in addition to JavaScript; XSSI is not limited to JavaScript files alone."
+    },
     {
       "id": "NET-001",
       "canonical_name": "Exposed High-Risk Network Service",
@@ -323,9 +3726,19 @@
       "cwe": "CWE-16",
       "severity_default": "High",
       "agent": "network_agent",
-      "tools": ["nmap"],
-      "aliases": ["open port", "exposed service", "exposed rdp", "exposed ssh", "exposed telnet"],
-      "preconditions": ["network_accessible"],
+      "tools": [
+        "nmap"
+      ],
+      "aliases": [
+        "open port",
+        "exposed service",
+        "exposed rdp",
+        "exposed ssh",
+        "exposed telnet"
+      ],
+      "preconditions": [
+        "network_accessible"
+      ],
       "test_strategy": {
         "recon_required": false,
         "auth_required": false,
@@ -337,13 +3750,19 @@
         "Attempt banner grab to confirm service version",
         "Cross-reference version against CVE database"
       ],
-      "expected_evidence": ["open_port_confirmed", "service_banner", "version_string"],
+      "expected_evidence": [
+        "open_port_confirmed",
+        "service_banner",
+        "version_string"
+      ],
       "evidence_requirements": {
-        "request": false, "response": true, "payload": false, "screenshot": false
+        "request": false,
+        "response": true,
+        "payload": false,
+        "screenshot": false
       },
       "remediation_ref": "https://www.cisecurity.org/controls/inventory-and-control-of-network-infrastructure-assets"
     },
-
     {
       "id": "NET-002",
       "canonical_name": "Default Credentials on Network Service",
@@ -354,9 +3773,18 @@
       "cwe": "CWE-1188",
       "severity_default": "Critical",
       "agent": "network_agent",
-      "tools": ["nmap", "manual"],
-      "aliases": ["default credentials", "default password", "no authentication"],
-      "preconditions": ["network_service_accessible"],
+      "tools": [
+        "nmap",
+        "manual"
+      ],
+      "aliases": [
+        "default credentials",
+        "default password",
+        "no authentication"
+      ],
+      "preconditions": [
+        "network_service_accessible"
+      ],
       "test_strategy": {
         "recon_required": false,
         "auth_required": false,
@@ -369,13 +3797,19 @@
         "For MySQL: attempt root with blank password",
         "Document successful access"
       ],
-      "expected_evidence": ["authentication_bypassed", "default_creds_worked", "unauthenticated_access"],
+      "expected_evidence": [
+        "authentication_bypassed",
+        "default_creds_worked",
+        "unauthenticated_access"
+      ],
       "evidence_requirements": {
-        "request": false, "response": true, "payload": false, "screenshot": false
+        "request": false,
+        "response": true,
+        "payload": false,
+        "screenshot": false
       },
       "remediation_ref": "https://owasp.org/www-project-top-ten/2017/A2_2017-Broken_Authentication"
     },
-
     {
       "id": "NET-003",
       "canonical_name": "Outdated Software Version with Known CVE",
@@ -386,9 +3820,18 @@
       "cwe": "CWE-1104",
       "severity_default": "High",
       "agent": "network_agent",
-      "tools": ["nmap"],
-      "aliases": ["vulnerable version", "cve", "unpatched software", "outdated service"],
-      "preconditions": ["service_version_detected"],
+      "tools": [
+        "nmap"
+      ],
+      "aliases": [
+        "vulnerable version",
+        "cve",
+        "unpatched software",
+        "outdated service"
+      ],
+      "preconditions": [
+        "service_version_detected"
+      ],
       "test_strategy": {
         "recon_required": false,
         "auth_required": false,
@@ -400,13 +3843,19 @@
         "Confirm CVE applicability to exact version",
         "Document CVSS score and exploit availability"
       ],
-      "expected_evidence": ["version_banner", "cve_id", "nvd_entry"],
+      "expected_evidence": [
+        "version_banner",
+        "cve_id",
+        "nvd_entry"
+      ],
       "evidence_requirements": {
-        "request": false, "response": true, "payload": false, "screenshot": false
+        "request": false,
+        "response": true,
+        "payload": false,
+        "screenshot": false
       },
       "remediation_ref": "https://nvd.nist.gov/"
     },
-
     {
       "id": "NET-004",
       "canonical_name": "Weak SSL/TLS Configuration",
@@ -417,9 +3866,20 @@
       "cwe": "CWE-326",
       "severity_default": "Medium",
       "agent": "network_agent",
-      "tools": ["nmap", "openssl"],
-      "aliases": ["weak tls", "weak ssl", "sslv3", "tls 1.0", "weak ciphers"],
-      "preconditions": ["tls_enabled"],
+      "tools": [
+        "nmap",
+        "openssl"
+      ],
+      "aliases": [
+        "weak tls",
+        "weak ssl",
+        "sslv3",
+        "tls 1.0",
+        "weak ciphers"
+      ],
+      "preconditions": [
+        "tls_enabled"
+      ],
       "test_strategy": {
         "recon_required": false,
         "auth_required": false,
@@ -431,13 +3891,19 @@
         "Check for weak cipher suites (RC4, DES, EXPORT)",
         "Check certificate validity and chain"
       ],
-      "expected_evidence": ["weak_protocol_supported", "weak_cipher_suite", "certificate_issue"],
+      "expected_evidence": [
+        "weak_protocol_supported",
+        "weak_cipher_suite",
+        "certificate_issue"
+      ],
       "evidence_requirements": {
-        "request": false, "response": true, "payload": false, "screenshot": false
+        "request": false,
+        "response": true,
+        "payload": false,
+        "screenshot": false
       },
       "remediation_ref": "https://cheatsheetseries.owasp.org/cheatsheets/TLS_Cipher_String_Cheat_Sheet.html"
     },
-
     {
       "id": "CLOUD-001",
       "canonical_name": "Publicly Accessible Cloud Storage Bucket",
@@ -448,9 +3914,19 @@
       "cwe": "CWE-284",
       "severity_default": "Critical",
       "agent": "cloud_agent",
-      "tools": ["prowler", "aws_cli"],
-      "aliases": ["public s3 bucket", "public storage", "open bucket"],
-      "preconditions": ["cloud_target", "aws_access"],
+      "tools": [
+        "prowler",
+        "aws_cli"
+      ],
+      "aliases": [
+        "public s3 bucket",
+        "public storage",
+        "open bucket"
+      ],
+      "preconditions": [
+        "cloud_target",
+        "aws_access"
+      ],
       "test_strategy": {
         "recon_required": false,
         "auth_required": false,
@@ -462,13 +3938,19 @@
         "Verify Block Public Access settings",
         "Attempt anonymous access to bucket contents"
       ],
-      "expected_evidence": ["public_acl_confirmed", "anonymous_access_success", "data_enumerated"],
+      "expected_evidence": [
+        "public_acl_confirmed",
+        "anonymous_access_success",
+        "data_enumerated"
+      ],
       "evidence_requirements": {
-        "request": false, "response": true, "payload": false, "screenshot": false
+        "request": false,
+        "response": true,
+        "payload": false,
+        "screenshot": false
       },
       "remediation_ref": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
     },
-
     {
       "id": "CLOUD-002",
       "canonical_name": "IAM Misconfiguration",
@@ -479,9 +3961,19 @@
       "cwe": "CWE-732",
       "severity_default": "High",
       "agent": "cloud_agent",
-      "tools": ["prowler"],
-      "aliases": ["iam misconfiguration", "overprivileged role", "root access keys", "no mfa"],
-      "preconditions": ["cloud_target", "aws_access"],
+      "tools": [
+        "prowler"
+      ],
+      "aliases": [
+        "iam misconfiguration",
+        "overprivileged role",
+        "root access keys",
+        "no mfa"
+      ],
+      "preconditions": [
+        "cloud_target",
+        "aws_access"
+      ],
       "test_strategy": {
         "recon_required": false,
         "auth_required": true,
@@ -493,13 +3985,19 @@
         "Check for overly permissive IAM policies (*:*)",
         "Check password policy strength"
       ],
-      "expected_evidence": ["root_keys_active", "mfa_disabled", "wildcard_policy_found"],
+      "expected_evidence": [
+        "root_keys_active",
+        "mfa_disabled",
+        "wildcard_policy_found"
+      ],
       "evidence_requirements": {
-        "request": false, "response": true, "payload": false, "screenshot": false
+        "request": false,
+        "response": true,
+        "payload": false,
+        "screenshot": false
       },
       "remediation_ref": "https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html"
     },
-
     {
       "id": "CLOUD-003",
       "canonical_name": "Missing Cloud Audit Logging",
@@ -510,9 +4008,18 @@
       "cwe": "CWE-778",
       "severity_default": "High",
       "agent": "cloud_agent",
-      "tools": ["prowler"],
-      "aliases": ["cloudtrail disabled", "audit logging disabled", "no logging"],
-      "preconditions": ["cloud_target", "aws_access"],
+      "tools": [
+        "prowler"
+      ],
+      "aliases": [
+        "cloudtrail disabled",
+        "audit logging disabled",
+        "no logging"
+      ],
+      "preconditions": [
+        "cloud_target",
+        "aws_access"
+      ],
       "test_strategy": {
         "recon_required": false,
         "auth_required": true,
@@ -524,14 +4031,19 @@
         "Check CloudWatch alarms exist for critical API calls",
         "Verify S3 bucket for logs is not publicly accessible"
       ],
-      "expected_evidence": ["cloudtrail_disabled", "region_without_logging"],
+      "expected_evidence": [
+        "cloudtrail_disabled",
+        "region_without_logging"
+      ],
       "evidence_requirements": {
-        "request": false, "response": true, "payload": false, "screenshot": false
+        "request": false,
+        "response": true,
+        "payload": false,
+        "screenshot": false
       },
       "remediation_ref": "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-getting-started.html"
     }
   ],
-
   "owasp_fallback_categories": {
     "web": {
       "source": "OWASP WSTG v4.2",

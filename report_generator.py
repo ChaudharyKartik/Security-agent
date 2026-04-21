@@ -246,7 +246,7 @@ def _gen_html(session: dict, base: str) -> str:
     target   = session.get("target","Unknown")
     gen_at   = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     bd       = summary.get("severity_breakdown",{})
-    modules  = ", ".join(session.get("modules_executed",[]))
+    modules  = ", ".join(session.get("agents_executed",[]))
     auth     = session.get("auth_used","Unauthenticated")
 
     def _badge(text, color):
@@ -259,10 +259,7 @@ def _gen_html(session: dict, base: str) -> str:
         sc     = STATUS_COLORS.get(status,"#6b7280")
         ev     = f.get("evidence",{}) or {}
         poc    = ev.get("curl_poc","")
-        req    = ev.get("request","")
         resp_s = ev.get("response_snippet","") or ev.get("response_headers","")
-        narr   = (f.get("exploitation_narrative","") or "").replace("\n","<br>").replace("**","<strong>").replace("**","</strong>")
-        # Simple bold replacement
         import re
         narr = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', f.get("exploitation_narrative","") or "")
         narr = narr.replace("\n","<br>")

@@ -392,7 +392,7 @@ class KnowledgeAgent:
     def _load_registry(path: str) -> dict:
         if not os.path.exists(path):
             raise FileNotFoundError(f"Checklist registry not found at: {path}")
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if "items" not in data:
             raise ValueError("Registry JSON must have an 'items' key")

@@ -15,6 +15,7 @@ Scan modes supported:
 """
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional
 
@@ -36,11 +37,19 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    logger.info("[MAIN] Database ready.")
+    yield
+
+
 app = FastAPI(
     title="AI VAPT Agent Platform",
     version="4.0.0",
-    description="Knowledge Agent-driven VAPT. Checklist-first, OWASP fallback. "
-                "Phase 2: DB-persistent. Authorized use only.",
+    description="Knowledge Agent-driven VAPT. Checklist-first, OWASP fallback. Authorized use only.",
+    lifespan=lifespan,
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
@@ -50,13 +59,6 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 sessions: dict = {}
 
 _ka = KnowledgeAgent()   # singleton — loaded once at startup
-
-
-@app.on_event("startup")
-def on_startup():
-    """Create all DB tables on startup if they don't exist."""
-    init_db()
-    logger.info("[MAIN] Database ready.")
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -187,28 +189,22 @@ def _get_session_dict(session_id: str, db: Session) -> dict:
 
 @app.get("/")
 def root(db: Session = Depends(get_db)):
-    db_count = db.query(crud.ScanSession).count()
     return {
         "agent":           "AI VAPT Agent Platform",
         "version":         "4.0.0",
         "status":          "online",
         "docs":            "/docs",
         "sessions_active": len(sessions),
-        "sessions_total":  db_count,
+        "sessions_total":  crud.count_sessions(db),
         "checklist_items": len(_ka.get_all_test_names()),
     }
 
 
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
-    try:
-        db.execute(crud.ScanSession.__table__.select().limit(1))
-        db_status = "ok"
-    except Exception as e:
-        db_status = f"error: {e}"
     return {
         "status":          "healthy",
-        "db":              db_status,
+        "db":              crud.db_ping(db),
         "sessions_active": len(sessions),
     }
 
@@ -411,10 +407,7 @@ def validate(session_id: str, req: ValidationRequest,
     finding  = next((f for f in findings if f.get("id") == req.finding_id), None)
 
     if not finding:
-        # Try loading directly from DB
-        db_f = db.query(crud.ScanFinding).filter(
-            crud.ScanFinding.id == req.finding_id
-        ).first()
+        db_f = crud.get_finding_by_id(db, req.finding_id)
         if not db_f:
             raise HTTPException(404, f"Finding '{req.finding_id}' not found")
         finding = crud.finding_to_dict(db_f)
@@ -426,19 +419,14 @@ def validate(session_id: str, req: ValidationRequest,
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    # Update in-memory copy if present
     if session_id in sessions:
         for f in sessions[session_id].get("enriched_findings", []):
             if f.get("id") == req.finding_id:
                 f.update(finding)
                 break
 
-    return {
-        "message":    "Validation applied",
-        "finding_id": req.finding_id,
-        "action":     req.action,
-        "persisted":  True,
-    }
+    return {"message": "Validation applied", "finding_id": req.finding_id,
+            "action": req.action, "persisted": True}
 
 
 @app.post("/validate/{session_id}/batch")

