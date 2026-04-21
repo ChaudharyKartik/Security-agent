@@ -5,3 +5,5 @@ __pycache__/
 .DS_Store
 reports/
 *.log
+*.db
+prowler_test/
