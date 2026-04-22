@@ -43,20 +43,25 @@ def analyse_findings(findings: list) -> list:
         logger.info("[FP-AGENT] LLM unavailable — using heuristic scores only")
         return findings
 
-    logger.info(f"[FP-AGENT] Analysing {len(findings)} findings with {llm.model}")
-    results       = []
-    needs_delay   = llm.provider in _RATE_LIMITED_PROVIDERS
+    # Only send Critical/High to LLM — lower severities keep heuristic scores
+    priority     = [f for f in findings if f.get("severity") in ("Critical", "High")]
+    skip         = [f for f in findings if f.get("severity") not in ("Critical", "High")]
+    needs_delay  = llm.provider in _RATE_LIMITED_PROVIDERS
 
-    for i, f in enumerate(findings):
+    logger.info(f"[FP-AGENT] Analysing {len(priority)} Critical/High findings with "
+                f"{llm.model} (skipping {len(skip)} Medium/Low/Info)")
+
+    analysed = []
+    for i, f in enumerate(priority):
         try:
-            enriched = _analyse_single(llm, f)
-            results.append(enriched)
+            analysed.append(_analyse_single(llm, f))
         except Exception as e:
-            logger.warning(f"[FP-AGENT] Failed to analyse finding '{f.get('name')}': {e}")
-            results.append(f)
-
-        if needs_delay and i < len(findings) - 1:
+            logger.warning(f"[FP-AGENT] Failed on '{f.get('name')}': {e}")
+            analysed.append(f)
+        if needs_delay and i < len(priority) - 1:
             time.sleep(_INTER_CALL_DELAY)
+
+    results = analysed + skip
 
     confirmed    = sum(1 for r in results if r.get("fp_status") == "confirmed")
     false_pos    = sum(1 for r in results if r.get("fp_status") == "likely_false_positive")
