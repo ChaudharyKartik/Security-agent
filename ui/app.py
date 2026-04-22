@@ -248,7 +248,7 @@ if page == "Scan":
         target = st.text_input("URL or IP", placeholder="https://example.com", label_visibility="collapsed")
     with c2:
         st.markdown("### Scan Type")
-        scan_type = st.selectbox("", ["Full", "Quick", "Deep"], label_visibility="collapsed")
+        scan_type = st.selectbox("Scan Type", ["Full", "Quick", "Deep"], label_visibility="collapsed")
     
     description = st.text_area("Description", placeholder="Assessment notes...", height=60)
     
