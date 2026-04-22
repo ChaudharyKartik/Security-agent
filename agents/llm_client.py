@@ -210,13 +210,25 @@ class LLMClient:
             "max_tokens":  max_tokens,
         }
 
-        t0 = time.time()
-        r = httpx.post(f"{base}/chat/completions",
-                       json=payload, headers=headers, timeout=LLM_TIMEOUT)
-        r.raise_for_status()
-        text = r.json()["choices"][0]["message"]["content"].strip()
-        logger.debug(f"[LLM] {self.provider} {round(time.time()-t0,1)}s | {len(text.split())} tokens")
-        return text or None
+        t0      = time.time()
+        backoff = 2
+        for attempt in range(4):
+            r = httpx.post(f"{base}/chat/completions",
+                           json=payload, headers=headers, timeout=LLM_TIMEOUT)
+            if r.status_code == 429:
+                retry_after = int(r.headers.get("retry-after", backoff))
+                logger.warning(f"[LLM] 429 rate-limited — retrying in {retry_after}s "
+                               f"(attempt {attempt+1}/4)")
+                time.sleep(retry_after)
+                backoff *= 2
+                continue
+            r.raise_for_status()
+            text = r.json()["choices"][0]["message"]["content"].strip()
+            logger.debug(f"[LLM] {self.provider} {round(time.time()-t0,1)}s")
+            return text or None
+
+        logger.error("[LLM] Gave up after 4 attempts (persistent 429)")
+        return None
 
     def _chat_gemini(self, system: str, user: str,
                      temperature: float, max_tokens: int) -> str | None:

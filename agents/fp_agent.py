@@ -10,9 +10,15 @@ Falls back to heuristic scoring (Phase 2 behaviour) if Ollama is unavailable,
 so the platform continues to work without LLM.
 """
 import logging
+import time
 from typing import Optional
 
 from agents.llm_client import get_llm
+
+# Groq free tier: ~30 req/min. One call every 2s = 30/min, safe margin.
+# Ollama/Gemini have no hard RPM cap so delay only applies to groq/openrouter.
+_RATE_LIMITED_PROVIDERS = {"groq", "openrouter"}
+_INTER_CALL_DELAY = 2.0   # seconds between LLM calls for rate-limited providers
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +44,19 @@ def analyse_findings(findings: list) -> list:
         return findings
 
     logger.info(f"[FP-AGENT] Analysing {len(findings)} findings with {llm.model}")
-    results = []
+    results       = []
+    needs_delay   = llm.provider in _RATE_LIMITED_PROVIDERS
 
-    for f in findings:
+    for i, f in enumerate(findings):
         try:
             enriched = _analyse_single(llm, f)
             results.append(enriched)
         except Exception as e:
             logger.warning(f"[FP-AGENT] Failed to analyse finding '{f.get('name')}': {e}")
-            results.append(f)  # keep original on error
+            results.append(f)
+
+        if needs_delay and i < len(findings) - 1:
+            time.sleep(_INTER_CALL_DELAY)
 
     confirmed    = sum(1 for r in results if r.get("fp_status") == "confirmed")
     false_pos    = sum(1 for r in results if r.get("fp_status") == "likely_false_positive")
