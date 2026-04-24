@@ -37,6 +37,10 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+# httpx logs every HTTP request at INFO — suppress to WARNING to avoid noise
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -504,9 +508,13 @@ def download_report(
     if s.get("status") not in ("awaiting_validation", "completed", "error"):
         raise HTTPException(400, "Scan not complete yet")
 
-    paths = generate_report(s, format=format)
+    try:
+        paths = generate_report(s, format=format)
+    except Exception as e:
+        logger.error(f"[REPORT] Generation failed for {session_id}: {e}", exc_info=True)
+        raise HTTPException(500, f"Report generation failed: {e}")
     if not paths:
-        raise HTTPException(500, "Report generation failed")
+        raise HTTPException(500, "Report generation produced no output")
 
     path  = paths[0]
     ext   = path.rsplit(".", 1)[-1]

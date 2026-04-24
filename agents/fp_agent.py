@@ -155,9 +155,15 @@ def _build_finding_summary(f: dict) -> str:
     if evidence:
         if evidence.get("banner"):
             lines.append(f"Banner/Service Info: {evidence['banner'][:100]}")
-        if evidence.get("response_headers"):
+        req = evidence.get("request") or evidence.get("request_header", "")
+        if req:
+            lines.append(f"HTTP Request:\n{req[:400]}")
+        if evidence.get("response_header"):
+            lines.append(f"HTTP Response Headers: {evidence['response_header'][:200]}")
+        elif evidence.get("response_headers"):
             lines.append(f"Response Headers: {str(evidence['response_headers'])[:200]}")
-        if evidence.get("curl_poc"):
+        # curl_poc kept as fallback for built-in probe findings without real exchange
+        if not req and evidence.get("curl_poc"):
             lines.append(f"PoC Command: {evidence['curl_poc'][:150]}")
 
     return "\n".join(lines)

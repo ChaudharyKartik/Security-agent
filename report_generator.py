@@ -62,7 +62,8 @@ def _gen_csv(session: dict, base: str) -> str:
     findings = session.get("enriched_findings",[])
     cols     = ["id","name","severity","cvss_score","cvss_vector","type","module","tool_used",
                 "url","port","service","cve","cwe","exploitability","description",
-                "solution","validation_status","validated_by","compliance","evidence_curl_poc"]
+                "solution","validation_status","validated_by","compliance",
+                "evidence_request","evidence_response"]
 
     with open(path,"w",newline="",encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
@@ -71,8 +72,11 @@ def _gen_csv(session: dict, base: str) -> str:
             row = {col: finding.get(col,"") for col in cols}
             # Flatten compliance list
             row["compliance"] = " | ".join(finding.get("compliance",[]))
-            # Pull curl PoC out of evidence dict
-            row["evidence_curl_poc"] = (finding.get("evidence") or {}).get("curl_poc","")
+            ev = finding.get("evidence") or {}
+            row["evidence_request"]  = ev.get("request") or ev.get("request_header","")
+            resp_hdr  = ev.get("response_header","")
+            resp_body = ev.get("response_snippet","")
+            row["evidence_response"] = (resp_hdr + "\r\n\r\n" + resp_body).strip() if (resp_hdr or resp_body) else ""
             w.writerow(row)
 
     logger.info(f"[REPORT] CSV: {path}")
@@ -83,156 +87,203 @@ def _gen_csv(session: dict, base: str) -> str:
 # PDF
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _s(text, length: int = 500) -> str:
+    """Sanitize text for fpdf built-in fonts (Latin-1 only). Replaces unmappable chars with '?'."""
+    if not text:
+        return ""
+    return str(text)[:length].encode("latin-1", errors="replace").decode("latin-1")
+
+
 def _gen_pdf(session: dict, base: str) -> str:
     path = base + ".pdf"
     try:
         from fpdf import FPDF
+    except ImportError:
+        logger.error("[REPORT] fpdf2 not installed. Run: pip install fpdf2")
+        raise RuntimeError("fpdf2 not installed")
 
+    try:
         class PDF(FPDF):
             def header(self):
-                self.set_font("Helvetica","B",10)
-                self.set_text_color(220,38,38)
-                self.cell(0,8,"AI Security Testing Agent v2.0 — CONFIDENTIAL",0,1,"C")
-                self.set_draw_color(51,65,85)
+                self.set_font("Helvetica", "B", 10)
+                self.set_text_color(220, 38, 38)
+                self.cell(0, 8, "AI Security Testing Agent v2.0 -- CONFIDENTIAL", 0, 1, "C")
+                self.set_draw_color(51, 65, 85)
                 self.line(10, self.get_y(), 200, self.get_y())
                 self.ln(2)
 
             def footer(self):
                 self.set_y(-12)
-                self.set_font("Helvetica","I",8)
-                self.set_text_color(100,116,139)
-                self.cell(0,8,f"Page {self.page_no()} — Authorized Testing Only — {datetime.utcnow().strftime('%Y-%m-%d')}",0,0,"C")
+                self.set_font("Helvetica", "I", 8)
+                self.set_text_color(100, 116, 139)
+                self.cell(0, 8,
+                          f"Page {self.page_no()} -- Authorized Testing Only -- "
+                          f"{datetime.utcnow().strftime('%Y-%m-%d')}",
+                          0, 0, "C")
 
         pdf = PDF()
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.add_page()
 
-        summary  = session.get("summary",{})
-        findings = session.get("enriched_findings",[])
-        target   = session.get("target","Unknown")
-        bd       = summary.get("severity_breakdown",{})
+        summary  = session.get("summary", {})
+        findings = session.get("enriched_findings", [])
+        target   = _s(session.get("target", "Unknown"), 100)
+        bd       = summary.get("severity_breakdown", {})
 
         # ── Cover block ──────────────────────────────────────────────────────
-        pdf.set_font("Helvetica","B",20)
-        pdf.set_text_color(15,23,42)
-        pdf.cell(0,12,"Security Assessment Report",0,1,"C")
-        pdf.set_font("Helvetica","",12)
-        pdf.set_text_color(100,116,139)
-        pdf.cell(0,6,f"Target: {target}",0,1,"C")
-        pdf.cell(0,6,f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",0,1,"C")
-        pdf.cell(0,6,f"Auth: {session.get('auth_used','Unauthenticated')}",0,1,"C")
+        pdf.set_font("Helvetica", "B", 20)
+        pdf.set_text_color(15, 23, 42)
+        pdf.cell(0, 12, "Security Assessment Report", 0, 1, "C")
+        pdf.set_font("Helvetica", "", 12)
+        pdf.set_text_color(100, 116, 139)
+        pdf.cell(0, 6, f"Target: {target}", 0, 1, "C")
+        pdf.cell(0, 6, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}", 0, 1, "C")
+        pdf.cell(0, 6, f"Auth: {_s(session.get('auth_used', 'Unauthenticated'), 80)}", 0, 1, "C")
         pdf.ln(6)
 
         # ── Risk rating ──────────────────────────────────────────────────────
-        rating = summary.get("risk_rating","UNKNOWN")
-        rating_colors = {"CRITICAL":(220,38,38),"HIGH":(234,88,12),"MEDIUM":(217,119,6),
-                         "LOW":(37,99,235),"CLEAN":(22,163,74)}
-        rc = rating_colors.get(rating,(100,116,139))
+        rating = summary.get("risk_rating", "UNKNOWN")
+        rating_colors = {"CRITICAL": (220,38,38), "HIGH": (234,88,12), "MEDIUM": (217,119,6),
+                         "LOW": (37,99,235), "CLEAN": (22,163,74)}
+        rc = rating_colors.get(rating, (100, 116, 139))
         pdf.set_fill_color(*rc)
-        pdf.set_text_color(255,255,255)
-        pdf.set_font("Helvetica","B",16)
-        pdf.cell(0,12,f"Overall Risk: {rating}",0,1,"C",True)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.cell(0, 12, f"Overall Risk: {rating}", 0, 1, "C", True)
         pdf.ln(4)
 
         # ── Severity summary ─────────────────────────────────────────────────
-        pdf.set_text_color(15,23,42)
-        pdf.set_font("Helvetica","B",11)
-        pdf.cell(0,8,"Severity Breakdown",0,1)
-        pdf.set_font("Helvetica","",10)
-        for sev, col in [("Critical",(220,38,38)),("High",(234,88,12)),
-                         ("Medium",(217,119,6)),("Low",(37,99,235)),("Info",(107,114,128))]:
-            count = bd.get(sev,0)
+        pdf.set_text_color(15, 23, 42)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 8, "Severity Breakdown", 0, 1)
+        pdf.set_font("Helvetica", "", 10)
+        for sev, col in [("Critical",(220,38,38)), ("High",(234,88,12)),
+                         ("Medium",(217,119,6)), ("Low",(37,99,235)), ("Info",(107,114,128))]:
+            count = bd.get(sev, 0)
             pdf.set_fill_color(*col)
-            pdf.set_text_color(255,255,255)
-            pdf.cell(30,7,f"  {sev}",0,0,"L",True)
-            pdf.set_text_color(15,23,42)
-            pdf.set_fill_color(248,250,252)
-            pdf.cell(20,7,str(count),0,0,"C",True)
+            pdf.set_text_color(255, 255, 255)
+            pdf.cell(30, 7, f"  {sev}", 0, 0, "L", True)
+            pdf.set_text_color(15, 23, 42)
+            pdf.set_fill_color(248, 250, 252)
+            pdf.cell(20, 7, str(count), 0, 0, "C", True)
             pdf.ln(8)
         pdf.ln(4)
 
         # ── Findings ─────────────────────────────────────────────────────────
-        pdf.set_font("Helvetica","B",12)
-        pdf.set_text_color(15,23,42)
-        pdf.cell(0,8,"Findings",0,1)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.set_text_color(15, 23, 42)
+        pdf.cell(0, 8, "Findings", 0, 1)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(2)
 
+        sev_colors = {"Critical": (220,38,38), "High": (234,88,12), "Medium": (217,119,6),
+                      "Low": (37,99,235), "Info": (107,114,128)}
+
         for idx, f in enumerate(findings, 1):
-            sev    = f.get("severity","Info")
-            sc     = {"Critical":(220,38,38),"High":(234,88,12),"Medium":(217,119,6),
-                      "Low":(37,99,235),"Info":(107,114,128)}.get(sev,(107,114,128))
+          try:
+            sev = f.get("severity", "Info")
+            sc  = sev_colors.get(sev, (107, 114, 128))
 
             # Finding header
             pdf.set_fill_color(*sc)
-            pdf.set_text_color(255,255,255)
-            pdf.set_font("Helvetica","B",10)
-            title = f.get('name','Unknown')[:80]
-            pdf.cell(0,8,f"  [{idx}] {title}",0,1,"L",True)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(0, 8, f"  [{idx}] {_s(f.get('name','Unknown'), 80)}", 0, 1, "L", True)
 
             # Metadata row
-            pdf.set_text_color(100,116,139)
-            pdf.set_font("Helvetica","",8)
-            pdf.set_fill_color(248,250,252)
+            pdf.set_text_color(100, 116, 139)
+            pdf.set_font("Helvetica", "", 8)
+            pdf.set_fill_color(248, 250, 252)
             meta = (f"ID: {f.get('id','-')}  |  CVSS: {f.get('cvss_score','-')}  |  "
-                    f"Vector: {f.get('cvss_vector','-')[:40]}  |  "
-                    f"Tool: {f.get('tool_used','-')}  |  Module: {f.get('module','-')}")
-            pdf.multi_cell(0,5,meta,0,1)
+                    f"Tool: {_s(f.get('tool_used','-'), 30)}  |  Module: {f.get('module','-')}")
+            pdf.multi_cell(0, 5, _s(meta, 200))
 
             # Description
-            pdf.set_text_color(15,23,42)
-            pdf.set_font("Helvetica","B",9)
-            pdf.cell(0,6,"Description:",0,1)
-            pdf.set_font("Helvetica","",9)
-            desc = f.get("description","")[:500]
-            pdf.multi_cell(0,5,desc,0,1)
+            pdf.set_text_color(15, 23, 42)
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.cell(0, 6, "Description:", 0, 1)
+            pdf.set_font("Helvetica", "", 9)
+            pdf.multi_cell(0, 5, _s(f.get("description", ""), 500))
 
             # Exploitation narrative
-            narr = f.get("exploitation_narrative","")
+            narr = f.get("exploitation_narrative", "")
             if narr:
-                pdf.set_font("Helvetica","B",9)
-                pdf.set_text_color(127,0,0)
-                pdf.cell(0,6,"Exploitation Narrative:",0,1)
-                pdf.set_font("Helvetica","",8)
-                pdf.set_text_color(50,50,50)
-                # Strip markdown bold markers for PDF
-                clean_narr = narr.replace("**","").replace("__","")[:700]
-                pdf.multi_cell(0,4,clean_narr,0,1)
+                clean_narr = narr.replace("**", "").replace("__", "")
+                pdf.set_font("Helvetica", "B", 9)
+                pdf.set_text_color(127, 0, 0)
+                pdf.cell(0, 6, "Exploitation Narrative:", 0, 1)
+                pdf.set_font("Helvetica", "", 8)
+                pdf.set_text_color(50, 50, 50)
+                pdf.multi_cell(0, 4, _s(clean_narr, 700))
 
-            # PoC Evidence
-            evidence = f.get("evidence",{})
-            poc = evidence.get("curl_poc","")
-            if poc:
-                pdf.set_font("Courier","B",8)
-                pdf.set_text_color(99,102,241)
-                pdf.cell(0,5,"PoC Command:",0,1)
-                pdf.set_font("Courier","",7)
-                pdf.set_fill_color(15,23,42)
-                pdf.set_text_color(165,180,252)
-                pdf.multi_cell(0,5,f"  {poc[:120]}",0,1,True)
+            # PoC Evidence — HTTP request / response blocks
+            ev = f.get("evidence") or {}
+            req_block = ev.get("request") or ev.get("request_header", "")
+            resp_hdr  = ev.get("response_header", "")
+            resp_body = ev.get("response_snippet", "")
+            if req_block:
+                pdf.set_font("Courier", "B", 8)
+                pdf.set_text_color(99, 102, 241)
+                pdf.cell(0, 5, "HTTP Request:", 0, 1)
+                pdf.set_font("Courier", "", 7)
+                pdf.set_fill_color(15, 23, 42)
+                pdf.set_text_color(165, 180, 252)
+                pdf.multi_cell(0, 4, _s(req_block, 600), fill=True)
+                if resp_hdr or resp_body:
+                    pdf.ln(2)
+                    pdf.set_font("Courier", "B", 8)
+                    pdf.set_text_color(99, 102, 241)
+                    pdf.cell(0, 5, "HTTP Response:", 0, 1)
+                    pdf.set_font("Courier", "", 7)
+                    pdf.set_fill_color(15, 23, 42)
+                    pdf.set_text_color(165, 180, 252)
+                    resp_block = resp_hdr
+                    if resp_body:
+                        resp_block = resp_block.rstrip() + "\r\n\r\n" + resp_body
+                    pdf.multi_cell(0, 4, _s(resp_block, 600), fill=True)
+
+                match_str = ev.get("evidence", "")
+                if match_str:
+                    pdf.ln(2)
+                    pdf.set_font("Helvetica", "B", 8)
+                    pdf.set_text_color(217, 119, 6)
+                    pdf.cell(0, 5, f"Match Found in Response: {_s(match_str, 200)}", 0, 1)
+                    pdf.set_text_color(15, 23, 42)
+
+            # Reproduction steps
+            repro_steps = f.get("reproduction_steps") or []
+            if repro_steps:
+                pdf.ln(2)
+                pdf.set_font("Helvetica", "B", 9)
+                pdf.set_text_color(22, 163, 74)
+                pdf.cell(0, 6, "Reproduction Steps:", 0, 1)
+                pdf.set_font("Helvetica", "", 8)
+                pdf.set_text_color(15, 23, 42)
+                for step_i, step in enumerate(repro_steps, 1):
+                    pdf.multi_cell(0, 4, _s(f"{step_i}. {step}", 300))
 
             # Solution
-            pdf.set_font("Helvetica","B",9)
-            pdf.set_text_color(22,163,74)
-            pdf.cell(0,6,"Recommendation:",0,1)
-            pdf.set_font("Helvetica","",9)
-            pdf.set_text_color(15,23,42)
-            pdf.multi_cell(0,5,f.get("solution","")[:400],0,1)
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.set_text_color(22, 163, 74)
+            pdf.cell(0, 6, "Recommendation:", 0, 1)
+            pdf.set_font("Helvetica", "", 9)
+            pdf.set_text_color(15, 23, 42)
+            pdf.multi_cell(0, 5, _s(f.get("solution", ""), 400))
 
             pdf.ln(4)
-            pdf.set_draw_color(226,232,240)
+            pdf.set_draw_color(226, 232, 240)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             pdf.ln(3)
+          except Exception as _fe:
+            logger.warning(f"[REPORT] PDF skipped finding '{f.get('name','?')}': {_fe}")
 
         pdf.output(path)
         logger.info(f"[REPORT] PDF: {path}")
         return path
 
-    except ImportError:
-        logger.warning("[REPORT] fpdf2 not installed — generating placeholder PDF")
-        with open(path,"w") as f:
-            f.write(f"PDF generation requires fpdf2.\nRun: pip install fpdf2\n\nSession: {session.get('session_id')}")
-        return path
+    except Exception as e:
+        logger.error(f"[REPORT] PDF generation failed: {e}", exc_info=True)
+        raise
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -240,6 +291,12 @@ def _gen_pdf(session: dict, base: str) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _gen_html(session: dict, base: str) -> str:
+    import html as _html
+
+    def _e(val, default="-") -> str:
+        """HTML-escape a value. Only substitutes default when val is None."""
+        return _html.escape(str(val) if val is not None else default)
+
     path     = base + ".html"
     summary  = session.get("summary",{})
     findings = session.get("enriched_findings",[])
@@ -257,16 +314,21 @@ def _gen_html(session: dict, base: str) -> str:
         col    = SEV_COLORS.get(sev,"#6b7280")
         status = f.get("validation_status","pending")
         sc     = STATUS_COLORS.get(status,"#6b7280")
-        ev     = f.get("evidence",{}) or {}
-        poc    = ev.get("curl_poc","")
-        resp_s = ev.get("response_snippet","") or ev.get("response_headers","")
+        ev         = f.get("evidence",{}) or {}
+        req_block  = ev.get("request") or ev.get("request_header","")
+        resp_hdr   = ev.get("response_header","")
+        resp_body  = ev.get("response_snippet","")
+        match_str  = ev.get("evidence","")
         import re
-        narr = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', f.get("exploitation_narrative","") or "")
+        raw_narr = f.get("exploitation_narrative","") or ""
+        # Escape first, then convert markdown bold → <strong> and newlines → <br>
+        narr = _html.escape(raw_narr)
+        narr = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', narr)
         narr = narr.replace("\n","<br>")
 
         compliance_tags = "".join(
             f'<span style="background:#0f172a;color:#64748b;border:1px solid #334155;'
-            f'padding:1px 6px;border-radius:8px;font-size:10px;margin-right:3px">{c}</span>'
+            f'padding:1px 6px;border-radius:8px;font-size:10px;margin-right:3px">{_e(c)}</span>'
             for c in (f.get("compliance") or [])
         )
 
@@ -274,20 +336,33 @@ def _gen_html(session: dict, base: str) -> str:
         cvss_detail = " | ".join(f"{k}:{v}" for k,v in cvss_metrics.items()) if cvss_metrics else ""
 
         poc_block = ""
-        if poc:
+        if req_block:
+            resp_combined = resp_hdr
+            if resp_body:
+                resp_combined = resp_combined.rstrip() + "\r\n\r\n" + resp_body
+            resp_section = ""
+            if resp_combined:
+                resp_section = f'''
+  <div style="margin-top:6px">
+    <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:3px">HTTP Response:</div>
+    <pre style="background:#0f172a;color:#94a3b8;padding:8px 10px;border-radius:4px;font-size:11px;overflow-x:auto;max-height:180px;margin:0;border-left:3px solid #334155">{_e(resp_combined[:800])}</pre>
+  </div>'''
+            match_block = ""
+            if match_str:
+                match_block = f'''
+  <div style="margin-top:6px;background:#451a03;border-left:3px solid #d97706;padding:6px 10px;border-radius:0 4px 4px 0">
+    <span style="font-size:11px;color:#fbbf24;font-weight:600">Match Found in Response:&nbsp;</span>
+    <code style="font-size:11px;color:#fde68a;background:#1c0a00;padding:1px 5px;border-radius:3px">{_e(match_str[:300])}</code>
+  </div>'''
             poc_block = f'''
 <div style="margin-top:8px">
-  <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:3px">PoC Command:</div>
-  <pre style="background:#0f172a;color:#a5b4fc;padding:8px 10px;border-radius:4px;font-size:11px;overflow-x:auto;margin:0;border-left:3px solid #6366f1">{poc}</pre>
+  <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:3px">HTTP Request:</div>
+  <pre style="background:#0f172a;color:#a5b4fc;padding:8px 10px;border-radius:4px;font-size:11px;overflow-x:auto;margin:0;border-left:3px solid #6366f1">{_e(req_block[:800])}</pre>
+  {resp_section}
+  {match_block}
 </div>'''
 
         evidence_block = ""
-        if resp_s:
-            evidence_block = f'''
-<div style="margin-top:6px">
-  <div style="font-size:11px;color:#94a3b8;font-weight:600;margin-bottom:3px">Response Evidence:</div>
-  <pre style="background:#0f172a;color:#94a3b8;padding:6px 10px;border-radius:4px;font-size:10px;overflow-x:auto;max-height:120px;margin:0">{resp_s[:500]}</pre>
-</div>'''
 
         narr_block = ""
         if narr:
@@ -297,27 +372,51 @@ def _gen_html(session: dict, base: str) -> str:
   <div style="font-size:12px;color:#fca5a5;line-height:1.7">{narr}</div>
 </div>'''
 
+        repro_block = ""
+        repro_steps = f.get("reproduction_steps") or []
+        if repro_steps:
+            items = "".join(
+                f'<li style="margin-bottom:4px">{_e(s)}</li>'
+                for s in repro_steps
+            )
+            repro_block = f'''
+<div style="margin-top:10px;background:#0d1f0d;border-left:3px solid #16a34a;padding:10px;border-radius:0 4px 4px 0">
+  <div style="font-size:11px;color:#4ade80;font-weight:600;margin-bottom:6px">Reproduction Steps (for developers):</div>
+  <ol style="font-size:12px;color:#86efac;line-height:1.7;padding-left:1.4em;margin:0">{items}</ol>
+</div>'''
+
         return f'''
 <div style="border-left:4px solid {col};background:#1e293b;border-radius:0 8px 8px 0;padding:1.2rem 1.4rem;margin-bottom:1rem">
   <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px">
-    <span style="font-weight:600;flex:1;color:#f1f5f9;font-size:14px">{f.get('name','Unknown')}</span>
+    <span style="font-weight:600;flex:1;color:#f1f5f9;font-size:14px">{_e(f.get('name','Unknown'))}</span>
     {_badge(sev, col)} {_badge(status.upper(), sc)}
     {_badge(f"CVSS {f.get('cvss_score','-')}", '#475569') if f.get('cvss_score') else ''}
     {_badge(f'CVE:{f["cve"]}', '#7c3aed') if f.get('cve') else ''}
   </div>
   <div style="font-size:11px;color:#64748b;font-family:monospace;margin-bottom:8px">
-    ID: {f.get('id','-')} | Module: {f.get('module','-')} | Tool: {f.get('tool_used','-')} | {f"Port: {f['port']}/{f.get('service','?')} |" if f.get('port') else ''} {cvss_detail}
+    ID: {_e(f.get('id','-'))} | Module: {_e(f.get('module','-'))} | Tool: {_e(f.get('tool_used','-'))} | {f"Port: {f['port']}/{_e(f.get('service','?'))} |" if f.get('port') else ''} {_e(cvss_detail)}
   </div>
-  <p style="font-size:13px;color:#cbd5e1;margin:0 0 6px"><strong style="color:#94a3b8">Description:</strong> {f.get('description','-')}</p>
-  <p style="font-size:13px;color:#cbd5e1;margin:0 0 8px"><strong style="color:#94a3b8">Recommendation:</strong> {f.get('solution','-')}</p>
+  <p style="font-size:13px;color:#cbd5e1;margin:0 0 6px"><strong style="color:#94a3b8">Description:</strong> {_e(f.get('description','-'))}</p>
+  <p style="font-size:13px;color:#cbd5e1;margin:0 0 8px"><strong style="color:#94a3b8">Recommendation:</strong> {_e(f.get('solution','-'))}</p>
   <div style="font-size:12px;background:#0f172a;border-left:3px solid #6366f1;padding:8px 10px;border-radius:0 4px 4px 0;color:#a5b4fc;margin-bottom:8px">
-    <strong>Analyst Note:</strong> {f.get('analyst_note','-')}
+    <strong>Analyst Note:</strong> {_e(f.get('analyst_note','-'))}
   </div>
   {poc_block}
   {evidence_block}
   {narr_block}
+  {repro_block}
   <div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap">{compliance_tags}</div>
 </div>'''
+
+    def _safe_finding_block(f):
+        try:
+            return _finding_block(f)
+        except Exception as ex:
+            logger.warning(f"[REPORT] HTML render failed for '{f.get('name','?')}': {ex}")
+            return (f'<div style="border-left:4px solid #6b7280;background:#1e293b;'
+                    f'padding:1rem;margin-bottom:1rem;color:#94a3b8">'
+                    f'[{_e(f.get("id","?"))}] {_e(f.get("name","Unknown finding"))} '
+                    f'— rendering error</div>')
 
     # Build grouped findings HTML
     grouped_html = ""
@@ -325,6 +424,7 @@ def _gen_html(session: dict, base: str) -> str:
         sev_group = [f for f in findings if f.get("severity") == sev]
         if not sev_group: continue
         col = SEV_COLORS[sev]
+        blocks = "".join(_safe_finding_block(f) for f in sev_group)
         grouped_html += f'''
 <div style="margin-bottom:1.5rem">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:.8rem;padding-bottom:6px;border-bottom:1px solid #334155">
@@ -332,7 +432,7 @@ def _gen_html(session: dict, base: str) -> str:
     <span style="font-size:1rem;font-weight:600;color:{col}">{sev}</span>
     <span style="font-size:12px;color:#64748b">{len(sev_group)} finding{"s" if len(sev_group)>1 else ""}</span>
   </div>
-  {"".join(_finding_block(f) for f in sev_group)}
+  {blocks}
 </div>'''
 
     # Tool breakdown table
@@ -372,9 +472,9 @@ pre{{white-space:pre-wrap;word-break:break-all}}
     </div>
   </div>
   <div style="display:flex;gap:2rem;margin-top:1rem;flex-wrap:wrap;font-size:13px">
-    <span><span style="color:#64748b">Target: </span><strong style="color:#e2e8f0">{target}</strong></span>
-    <span><span style="color:#64748b">Auth: </span><span style="color:#e2e8f0">{auth}</span></span>
-    <span><span style="color:#64748b">Modules: </span><span style="color:#e2e8f0">{modules}</span></span>
+    <span><span style="color:#64748b">Target: </span><strong style="color:#e2e8f0">{_e(target)}</strong></span>
+    <span><span style="color:#64748b">Auth: </span><span style="color:#e2e8f0">{_e(auth)}</span></span>
+    <span><span style="color:#64748b">Modules: </span><span style="color:#e2e8f0">{_e(modules)}</span></span>
   </div>
 </div>
 

@@ -193,6 +193,34 @@ def api_post(endpoint, payload):
     except Exception as e:
         return {"error": str(e)}
 
+def api_download(endpoint, params=None):
+    """Return (bytes, content_type, error_msg) for binary downloads."""
+    try:
+        r = requests.get(f"{API_BASE}{endpoint}", params=params, timeout=60)
+        if r.ok:
+            return r.content, r.headers.get("content-type", "application/octet-stream"), None
+        try:
+            detail = r.json().get("detail", r.text[:200])
+        except Exception:
+            detail = r.text[:200]
+        return None, None, f"HTTP {r.status_code}: {detail}"
+    except Exception as e:
+        return None, None, str(e)
+
+def api_delete(endpoint) -> tuple:
+    """Return (ok: bool, error_msg: str | None)."""
+    try:
+        r = requests.delete(f"{API_BASE}{endpoint}", timeout=10)
+        if r.ok:
+            return True, None
+        try:
+            detail = r.json().get("detail", r.text[:200])
+        except Exception:
+            detail = r.text[:200]
+        return False, f"HTTP {r.status_code}: {detail}"
+    except Exception as e:
+        return False, str(e)
+
 def check_api():
     r = api_get("/health")
     return r is not None and r.get("status") == "healthy"
@@ -343,52 +371,104 @@ if page == "Scan":
 elif page == "Dashboard":
     st.markdown("# Assessment Dashboard")
 
-    if st.button("Refresh", use_container_width=False):
-        st.rerun()
+    # ── Toolbar ─────────────────────────────────────────────────────────────
+    tb1, tb2, tb3 = st.columns([1, 1, 6])
+    with tb1:
+        if st.button("Refresh", use_container_width=True):
+            # Clear any per-session confirm state and reload
+            for k in list(st.session_state.keys()):
+                if k.startswith("confirm_del_"):
+                    del st.session_state[k]
+            st.rerun()
+    with tb2:
+        if st.button("Clear All", use_container_width=True, type="secondary"):
+            st.session_state["confirm_clear_all"] = True
+
+    if st.session_state.get("confirm_clear_all"):
+        st.warning("Delete ALL scan sessions permanently? This cannot be undone.")
+        yes, no = st.columns(2)
+        if yes.button("Yes, delete all", type="primary", key="yes_clear_all"):
+            all_data = api_get("/sessions", params={"limit": 500}) or {}
+            errors = []
+            for s in all_data.get("sessions", []):
+                ok, err = api_delete(f"/session/{s['session_id']}")
+                if not ok:
+                    errors.append(err)
+            st.session_state.pop("confirm_clear_all", None)
+            if errors:
+                st.error(f"Some deletions failed: {errors}")
+            else:
+                st.success("All sessions deleted.")
+            st.rerun()
+        if no.button("Cancel", key="no_clear_all"):
+            st.session_state.pop("confirm_clear_all", None)
+            st.rerun()
+
+    st.divider()
 
     data = api_get("/sessions")
 
-    if not data or data.get("count", 0) == 0:
-        st.info("No scans yet")
+    if not data or data.get("total", 0) == 0:
+        st.info("No scans yet. Run your first assessment from the Scan tab.")
     else:
         sessions_list = data.get("sessions", [])
 
-        # ── Summary header ──────────────────────────────────────────────────
-        total_sessions  = data.get("total", 0)
-        # Only count findings from the LATEST scan of each unique target
-        # (avoids double-counting repeated scans of the same host)
-        seen_targets = {}
-        for s in sessions_list:
-            t = s.get("target", "?")
-            if t not in seen_targets:
-                seen_targets[t] = s.get("total_findings", 0)
-
-        total_findings  = sum(s.get("total_findings", 0) for s in sessions_list)
-        critical_scans  = sum(1 for s in sessions_list if s.get("risk_rating") == "CRITICAL")
+        # ── Summary metrics ──────────────────────────────────────────────────
+        seen_targets   = {s.get("target", "?"): True for s in sessions_list}
+        total_findings = sum(s.get("total_findings", 0) for s in sessions_list)
+        critical_scans = sum(1 for s in sessions_list if s.get("risk_rating") == "CRITICAL")
 
         hc1, hc2, hc3, hc4 = st.columns(4)
-        hc1.metric("Total Scans",    total_sessions)
-        hc2.metric("Total Findings", total_findings)
-        hc3.metric("Critical Scans", critical_scans)
+        hc1.metric("Total Scans",     data.get("total", 0))
+        hc2.metric("Total Findings",  total_findings)
+        hc3.metric("Critical Scans",  critical_scans)
         hc4.metric("Targets Scanned", len(seen_targets))
 
         st.divider()
-        st.markdown("### Recent Sessions (newest first)")
+        st.markdown("### Sessions (newest first)")
 
-        for s in sessions_list[:10]:   # already sorted newest-first by API
+        for s in sessions_list:
             risk    = s.get("risk_rating", "-")
             count   = s.get("total_findings", 0)
             status  = s.get("status", "?")
-            sid_tag = s.get("session_id", "?")
+            sid     = s.get("session_id", "?")
             target  = s.get("target", "?")
+            ts      = (s.get("start_time") or "")[:16].replace("T", " ")
 
-            risk_icon = {"CRITICAL":"🔴","HIGH":"🟠","MEDIUM":"🟡","LOW":"🟢","CLEAN":"✅"}.get(risk, "⚪")
-            with st.expander(f"{risk_icon} `{sid_tag}` — {target}  |  {count} findings  |  {risk}"):
+            risk_icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡",
+                         "LOW": "🟢", "CLEAN": "✅"}.get(risk, "⚪")
+
+            with st.expander(f"{risk_icon}  {target}  |  {count} findings  |  {risk}  |  {ts}"):
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Status",   status)
+                c1.metric("Status",   status.replace("_", " ").title())
                 c2.metric("Risk",     risk)
                 c3.metric("Findings", count)
-                c4.metric("Duration", f"{s.get('duration_seconds') or '-'}s")
+                c4.metric("Duration", f"{int(s['duration_seconds'])}s"
+                          if s.get("duration_seconds") else "-")
+
+                st.caption(f"Session ID: `{sid}`")
+
+                # ── Delete button with inline confirmation ───────────────────
+                confirm_key = f"confirm_del_{sid}"
+                if not st.session_state.get(confirm_key):
+                    if st.button("Delete this scan", key=f"del_{sid}",
+                                 type="secondary"):
+                        st.session_state[confirm_key] = True
+                        st.rerun()
+                else:
+                    st.warning("Permanently delete this scan and all its findings?")
+                    d1, d2 = st.columns(2)
+                    if d1.button("Confirm delete", key=f"yes_{sid}", type="primary"):
+                        ok, err = api_delete(f"/session/{sid}")
+                        st.session_state.pop(confirm_key, None)
+                        if ok:
+                            st.success("Deleted.")
+                        else:
+                            st.error(f"Delete failed: {err}")
+                        st.rerun()
+                    if d2.button("Cancel", key=f"no_{sid}"):
+                        st.session_state.pop(confirm_key, None)
+                        st.rerun()
 
 # ────────────────────────────────────────────────────────────────────────────
 # PAGE: REVIEW
@@ -488,27 +568,61 @@ elif page == "Review":
                             evidence = f.get("evidence", {})
                             if evidence:
                                 st.markdown("**Proof of Concept**")
-                                
-                                # Show curl command
-                                if evidence.get("curl_poc"):
+
+                                # Real HTTP exchange (ZAP High/Medium findings)
+                                if evidence.get("request_header") or evidence.get("request"):
+                                    st.markdown("_HTTP Request_")
+                                    req_block = evidence.get("request") or evidence.get("request_header", "")
+                                    st.code(req_block, language="http")
+
+                                    resp_hdr  = evidence.get("response_header", "")
+                                    resp_body = evidence.get("response_snippet", "")
+                                    if resp_hdr or resp_body:
+                                        st.markdown("_HTTP Response_")
+                                        resp_block = resp_hdr
+                                        if resp_body:
+                                            resp_block = resp_block.rstrip() + "\r\n\r\n" + resp_body
+                                        st.code(resp_block, language="http")
+
+                                    # Match highlight — ZAP's exact matched string in the response
+                                    match_str = evidence.get("evidence", "")
+                                    if match_str:
+                                        st.warning(f"**Match Found in Response:** `{match_str}`")
+
+                                    # HAR download — importable into Burp Suite / browser DevTools
+                                    if evidence.get("har"):
+                                        import json as _json
+                                        har_bytes = _json.dumps(evidence["har"], indent=2).encode()
+                                        st.download_button(
+                                            label="Download HAR (Burp/DevTools import)",
+                                            data=har_bytes,
+                                            file_name=f"{f.get('name','finding').replace(' ','_')}.har",
+                                            mime="application/json",
+                                            key=f"har_{f.get('id', i)}",
+                                        )
+
+                                elif evidence.get("poc_url"):
+                                    # Low/Info ZAP findings — no full exchange captured
+                                    st.caption(f"URL: {evidence['poc_url']}")
+                                    if evidence.get("poc_param"):
+                                        st.caption(f"Parameter: {evidence['poc_param']}")
+                                    if evidence.get("poc_attack"):
+                                        st.caption(f"Attack: {evidence['poc_attack']}")
+
+                                elif evidence.get("curl_poc"):
+                                    # Built-in probe findings (header checks, CORS, etc.)
                                     st.code(evidence["curl_poc"], language="bash")
-                                
-                                # Show request details (not nested expander)
-                                if evidence.get("method") or evidence.get("url"):
-                                    st.markdown("_Request Details_")
-                                    if evidence.get("method"):
-                                        st.caption(f"Method: {evidence['method']}")
-                                    if evidence.get("url"):
-                                        st.caption(f"URL: {evidence['url']}")
-                                    st.divider()
-                                
-                                # Show response
-                                if evidence.get("response_snippet") or evidence.get("response_headers"):
-                                    st.markdown("_Response Evidence_")
-                                    resp = evidence.get("response_snippet") or evidence.get("response_headers", "")
-                                    st.code(resp[:800], language="http")
-                                    st.divider()
-                                
+                                    if evidence.get("response_headers"):
+                                        st.markdown("_Response Headers_")
+                                        st.code(evidence["response_headers"], language="http")
+
+                                # Reproduction steps
+                                steps = f.get("reproduction_steps") or []
+                                if steps:
+                                    st.markdown("**Reproduction Steps**")
+                                    for n, step in enumerate(steps, 1):
+                                        st.markdown(f"{n}. {step}")
+
                                 # Network-specific evidence
                                 if evidence.get("nmap_cmd"):
                                     st.markdown("_Network Scan_")
@@ -516,11 +630,7 @@ elif page == "Review":
                                     if evidence.get("banner"):
                                         st.caption(f"Banner: {evidence['banner']}")
                                     st.divider()
-                                
-                                # Show affected parameters
-                                if evidence.get("param"):
-                                    st.info(f"Parameter: {evidence['param']}")
-                                
+
                                 if evidence.get("affected_url"):
                                     st.info(f"Affected URL: {evidence['affected_url']}")
                             
@@ -612,7 +722,78 @@ elif page == "Review":
 
 elif page == "Export":
     st.markdown("# Report Export")
-    st.info("Select a session and download report in your preferred format")
+
+    # ── Session list ─────────────────────────────────────────────────────────
+    sessions_data = api_get("/sessions", params={"limit": 200})
+    all_sessions  = (sessions_data or {}).get("sessions", [])
+
+    # Only sessions that have completed (or are awaiting validation)
+    exportable = [
+        s for s in all_sessions
+        if s.get("status") in ("completed", "awaiting_validation", "error")
+    ]
+
+    if not exportable:
+        st.warning("No completed scans available. Run a scan first.")
+    else:
+        # Build display labels for the selector
+        def _session_label(s):
+            ts  = (s.get("start_time") or "")[:16].replace("T", " ")
+            return f"{s['target']}  |  {ts}  |  {s.get('risk_rating','-')} risk  [{s['session_id'][:8]}]"
+
+        labels     = [_session_label(s) for s in exportable]
+        chosen_idx = st.selectbox("Select Session", range(len(labels)),
+                                  format_func=lambda i: labels[i])
+        chosen = exportable[chosen_idx]
+        sid    = chosen["session_id"]
+
+        # ── Summary metrics ──────────────────────────────────────────────────
+        st.divider()
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Target",    chosen.get("target", "-"))
+        m2.metric("Status",    chosen.get("status", "-").replace("_", " ").title())
+        m3.metric("Findings",  chosen.get("total_findings", 0))
+        m4.metric("Risk",      chosen.get("risk_rating", "-"))
+        dur = chosen.get("duration_seconds")
+        m5.metric("Duration",  f"{int(dur)}s" if dur else "-")
+
+        # ── Format download buttons ──────────────────────────────────────────
+        st.divider()
+        st.markdown("### Download Report")
+
+        FORMATS = [
+            ("PDF",  "pdf",  "application/pdf",       "vapt_report.pdf"),
+            ("HTML", "html", "text/html",              "vapt_report.html"),
+            ("CSV",  "csv",  "text/csv",               "vapt_report.csv"),
+            ("JSON", "json", "application/json",       "vapt_report.json"),
+        ]
+
+        cols = st.columns(len(FORMATS))
+        for col, (label, fmt, mime, _) in zip(cols, FORMATS):
+            with col:
+                if st.button(f"Generate {label}", key=f"gen_{fmt}_{sid}"):
+                    with st.spinner(f"Generating {label} report…"):
+                        data, ct, err = api_download(
+                            f"/report/{sid}/download",
+                            params={"format": fmt},
+                        )
+                    if err:
+                        st.error(f"{label} failed: {err}")
+                    else:
+                        st.session_state[f"dl_{fmt}_{sid}"] = (data, ct)
+                        st.success(f"{label} ready — click Download below")
+
+                key = f"dl_{fmt}_{sid}"
+                if key in st.session_state:
+                    data, ct = st.session_state[key]
+                    ext = fmt
+                    st.download_button(
+                        label=f"Download {label}",
+                        data=data,
+                        file_name=f"vapt_report_{sid[:8]}.{ext}",
+                        mime=ct or mime,
+                        key=f"dlbtn_{fmt}_{sid}",
+                    )
 
 # ────────────────────────────────────────────────────────────────────────────
 # PAGE: GUIDE

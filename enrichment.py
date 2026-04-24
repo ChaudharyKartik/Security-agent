@@ -38,14 +38,22 @@ def enrich_findings(all_module_results: list) -> list:
         module_name = module_result.get("module","unknown")
         target      = module_result.get("target","")
         tool_used   = module_result.get("tool_used","")
-        for finding in module_result.get("findings",[]):
-            ef = _enrich_single(finding, module_name, target, tool_used)
-            if ef["id"] not in seen:
-                seen.add(ef["id"])
-                enriched.append(ef)
+        raw_findings = module_result.get("findings",[])
+        logger.info(f"[ENRICHMENT] {module_name}: {len(raw_findings)} raw findings")
+        for finding in raw_findings:
+            try:
+                ef = _enrich_single(finding, module_name, target, tool_used)
+                if ef["id"] not in seen:
+                    seen.add(ef["id"])
+                    enriched.append(ef)
+                else:
+                    logger.debug(f"[ENRICHMENT] Deduplicated: {ef['id']} ({ef.get('name','')})")
+            except Exception as e:
+                logger.warning(f"[ENRICHMENT] Skipping finding '{finding.get('name','?')}' "
+                               f"in {module_name}: {e}")
 
     enriched.sort(key=lambda x: SEVERITY_ORDER.get(x.get("severity","Info"),99))
-    logger.info(f"[ENRICHMENT] {len(enriched)} findings enriched.")
+    logger.info(f"[ENRICHMENT] Done — {len(enriched)} unique findings enriched.")
     return enriched
 
 
@@ -116,6 +124,9 @@ def _enrich_single(finding: dict, module_name: str, target: str, tool_used: str)
 
         # PoC evidence block (passed through from agent)
         "evidence":             finding.get("evidence", {}),
+
+        # Developer-facing reproduction steps (numbered list)
+        "reproduction_steps":  _generate_reproduction_steps(finding, ftype, target),
 
         # Attacker narrative
         "exploitation_narrative": _build_exploitation_narrative(finding, severity, ftype, target),
@@ -207,7 +218,29 @@ def _exploitability_label(score: float) -> str:
 
 
 def _generate_id(finding: dict, module: str) -> str:
-    key = f"{module}_{finding.get('name','')}_{finding.get('url', finding.get('port',''))}"
+    from urllib.parse import urlparse
+
+    name  = finding.get("name", "")
+    ftype = finding.get("type", "")
+    raw   = finding.get("url", "") or str(finding.get("port", ""))
+
+    # Site-wide issues (missing headers, cookie flags, SSL) are the same finding
+    # regardless of which page ZAP crawled — collapse to host level so 20 alerts
+    # for "CSP Missing" on 20 pages don't all become separate report entries.
+    _host_level = {"missing_security_header", "insecure_cookie", "ssl_error",
+                   "information_disclosure", "auth_misconfiguration"}
+    if ftype in _host_level:
+        try:
+            p = urlparse(raw)
+            url = f"{p.scheme}://{p.netloc}" if p.netloc else raw
+        except Exception:
+            url = raw
+    else:
+        url = raw
+
+    # Include param for web vulns so SQLi on ?user= and ?pass= stay separate
+    param = finding.get("param", "") if ftype == "web_vulnerability" else ""
+    key   = f"{module}_{name}_{url}_{param}"
     return "FIND-" + hashlib.md5(key.encode()).hexdigest()[:8].upper()
 
 
@@ -215,6 +248,148 @@ def _infer_name(finding: dict) -> str:
     if finding.get("type") == "open_port":
         return f"Open Port: {finding.get('port')}/{finding.get('service','unknown')}"
     return finding.get("type","Unknown Finding").replace("_"," ").title()
+
+
+def _generate_reproduction_steps(finding: dict, ftype: str, target: str) -> list:
+    """
+    Auto-generate numbered developer-friendly reproduction steps from ZAP/tool fields.
+    Returns a list of step strings (no numbering prefix — caller adds that).
+    """
+    url     = finding.get("url") or target
+    param   = finding.get("param", "")
+    attack  = finding.get("attack", "")
+    evidence = (finding.get("evidence") or {})
+    ev_str  = evidence.get("evidence", "") or evidence.get("match", "")
+    banner  = evidence.get("banner", "")
+    port    = str(finding.get("port", ""))
+    service = finding.get("service", "")
+    name    = finding.get("name", "")
+
+    # Extract host for commands
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+        host   = parsed.hostname or target
+    except Exception:
+        host = target
+
+    if ftype == "web_vulnerability":
+        steps = [
+            f"Open a browser and navigate to: {url}",
+        ]
+        if param:
+            steps.append(f"Locate the `{param}` parameter in the request (query string, form field, or header).")
+        steps.append("Open a proxy tool such as Burp Suite or ZAP and intercept the request.")
+        if param and attack:
+            steps.append(f"Replace the value of `{param}` with the following payload: `{attack}`")
+        elif attack:
+            steps.append(f"Inject the following payload into the vulnerable parameter: `{attack}`")
+        else:
+            steps.append("Inject a test payload into the vulnerable parameter.")
+        steps.append("Forward the modified request to the server.")
+        if ev_str:
+            steps.append(f"Observe the server response — look for: `{ev_str[:120]}`")
+        else:
+            steps.append("Observe the server response for signs of vulnerability (error messages, reflected input, or unexpected behaviour).")
+        return steps
+
+    if ftype == "missing_security_header":
+        steps = [
+            f"Open a browser and navigate to: {url}",
+            "Open Developer Tools (press F12) and go to the Network tab.",
+            "Reload the page and click on any request to the main domain.",
+            "Select the 'Headers' tab and scroll to the Response Headers section.",
+            f"Confirm that the `{name}` response header is absent.",
+            "Any request to this origin will be served without this security control.",
+        ]
+        return steps
+
+    if ftype == "insecure_cookie":
+        steps = [
+            f"Open a browser and navigate to: {url}",
+            "Open Developer Tools (press F12) and go to the Application tab.",
+            "In the left panel expand Storage → Cookies and select the domain.",
+            f"Locate the session/auth cookie and check its attributes.",
+            "Verify that the insecure flag is set (or the secure/HttpOnly flag is missing).",
+            "A script on the page (via XSS) or a network attacker can now steal this cookie.",
+        ]
+        if param:
+            steps[3] = f"Locate the `{param}` cookie and inspect its attribute flags."
+        return steps
+
+    if ftype == "ssl_error":
+        steps = [
+            f"Run the following command from a terminal: `openssl s_client -connect {host}:443`",
+            "Inspect the TLS handshake output for protocol version and cipher suite.",
+            f"Alternatively, run: `nmap --script ssl-enum-ciphers -p 443 {host}`",
+            "Note any deprecated protocols (SSLv3, TLS 1.0/1.1) or weak ciphers reported.",
+            "A network attacker in a MITM position can exploit this to intercept or decrypt traffic.",
+        ]
+        return steps
+
+    if ftype == "open_port":
+        steps = [
+            f"Run a port scan: `nmap -sV -p {port} {host}`",
+            f"Confirm that port {port}/{service or 'unknown'} is open and accepting connections.",
+            f"Attempt a direct connection: `nc -v {host} {port}`",
+        ]
+        if banner:
+            steps.append(f"Observe the banner: `{banner[:100]}`")
+        steps.append(f"Query CVE databases for known vulnerabilities in the detected {service or 'service'} version.")
+        steps.append("Attempt authentication with default or blank credentials if applicable.")
+        return steps
+
+    if ftype == "auth_misconfiguration":
+        steps = [
+            f"Connect to the service at: {url or f'{host}:{port}'}",
+            "Attempt to authenticate using common default credentials (e.g., admin/admin, admin/password, root/root).",
+            "Try authenticating with a blank password or no password at all.",
+            "If access is granted, browse available data, configuration, and user listings.",
+            "Document any sensitive information accessible without proper authorisation.",
+        ]
+        return steps
+
+    if ftype == "information_disclosure":
+        steps = [
+            f"Send a standard HTTP request to: {url}",
+            "Inspect the full response — headers, body, and any error messages.",
+        ]
+        if ev_str:
+            steps.append(f"Look for the disclosed information: `{ev_str[:120]}`")
+        steps.append(f"Run: `curl -s \"{url}\" | grep -i 'version\\|error\\|stack\\|path\\|debug'`")
+        steps.append("Cross-reference any disclosed version strings against CVE databases for exploitable vulnerabilities.")
+        return steps
+
+    if ftype == "cloud_misconfiguration":
+        steps = [
+            f"Identify the affected cloud resource from the finding name: {name}",
+            "Use the appropriate cloud CLI to verify the configuration:",
+            "  AWS: `aws s3 ls s3://<bucket>` or `aws iam get-account-authorization-details`",
+            "  GCP: `gcloud projects get-iam-policy <project>`",
+            "  Azure: `az resource list --query \"[].{name:name,type:type}\"`",
+            "Attempt unauthenticated or cross-account access to confirm exploitability.",
+            "Document all data accessible via the misconfiguration.",
+        ]
+        return steps
+
+    if ftype == "vulnerable_version":
+        steps = [
+            f"Run a service version scan: `nmap -sV -p {port or '0-65535'} {host}`",
+            f"Note the exact version of {service or 'the service'} reported.",
+            f"Search for known exploits: `searchsploit {service} {port}`",
+            "Check the NVD (nvd.nist.gov) for CVEs matching this version.",
+            f"If a PoC exploit exists, test it against {host}:{port} in an authorised test environment.",
+        ]
+        return steps
+
+    # Generic fallback
+    steps = [
+        f"Navigate to the affected target: {url}",
+        f"Reproduce the condition described in the finding: {name}",
+        "Capture the request and response using a proxy tool (Burp Suite or ZAP).",
+        "Verify the issue is consistently reproducible before reporting.",
+    ]
+    return steps
 
 
 def _build_exploitation_narrative(finding: dict, severity: str, ftype: str, target: str) -> str:

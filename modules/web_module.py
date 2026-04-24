@@ -4,6 +4,7 @@ Auth credentials from ScanConfig are injected into all requests.
 Every finding captures request/response pairs and curl PoC commands.
 Tool label: OWASP ZAP 2.14 (real) | Built-in HTTP Probe (fallback)
 """
+import concurrent.futures
 import logging
 import re
 import time
@@ -39,8 +40,9 @@ def run_web_scan(target: str, config=None, checklist_items=None) -> dict:
 
     zap_result = _try_zap_scan(url, zap_base, zap_key, config)
     if zap_result is not None:
-        findings   = zap_result
-        tool_used  = TOOL_ZAP
+        findings  = zap_result
+        tool_used = TOOL_ZAP
+        logger.info(f"[WEB] ZAP: {len(zap_result)} alerts")
     else:
         logger.info("[WEB] ZAP unavailable — running built-in HTTP probes")
         findings  = _probe_target(url, auth_hdrs, config)
@@ -82,7 +84,20 @@ def _try_zap_scan(url: str, base: str, key: str, config) -> list | None:
 
         alerts_r = httpx.get(f"{base}/JSON/core/view/alerts/",
                              params={"apikey": key, "baseurl": url}, timeout=10)
-        return [_zap_to_finding(a) for a in alerts_r.json().get("alerts", [])]
+        alerts = alerts_r.json().get("alerts", [])
+
+        # Fetch real HTTP request/response for High/Medium alerts in parallel.
+        # Low/Info findings keep raw ZAP fields — fetching all messages for
+        # informational alerts adds latency without meaningful PoC value.
+        def enrich(alert: dict) -> dict:
+            message = None
+            msg_id  = alert.get("messageId", "")
+            if msg_id and alert.get("risk", "") in ("High", "Critical", "Medium"):
+                message = _fetch_zap_message(base, key, msg_id)
+            return _zap_to_finding(alert, message)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
+            return list(ex.map(enrich, alerts))
     except Exception:
         return None
 
@@ -130,28 +145,76 @@ def _zap_wait(task: str, base: str, key: str, scan_id: str = "0", timeout: int =
         time.sleep(3)
 
 
-def _zap_to_finding(alert: dict) -> dict:
+def _fetch_zap_message(base: str, key: str, message_id: str) -> dict | None:
+    """Fetch raw HTTP request/response + HAR for a ZAP message ID."""
+    try:
+        r = httpx.get(f"{base}/JSON/core/view/message/",
+                      params={"apikey": key, "id": message_id}, timeout=5)
+        if r.status_code != 200:
+            return None
+        msg = r.json().get("message", {})
+        # Also fetch HAR — gives a Burp-importable format for replay
+        try:
+            har_r = httpx.get(f"{base}/JSON/core/view/messageHar/",
+                               params={"apikey": key, "id": message_id}, timeout=5)
+            if har_r.status_code == 200:
+                msg["_har"] = har_r.json().get("har", {})
+            else:
+                logger.debug(f"[ZAP] HAR not available for message {message_id} (HTTP {har_r.status_code})")
+        except Exception:
+            pass
+        return msg
+    except Exception:
+        pass
+    return None
+
+
+
+def _zap_to_finding(alert: dict, message: dict | None = None) -> dict:
     risk_map = {"High":"High","Medium":"Medium","Low":"Low","Informational":"Info","":"Info"}
-    url  = alert.get("url","")
-    host = urlparse(url).netloc or url
+    url = alert.get("url", "")
+
+    evidence: dict = {
+        "type":     "zap_alert",
+        "evidence": alert.get("evidence", ""),
+        "attack":   alert.get("attack",   ""),
+        "param":    alert.get("param",    ""),
+    }
+
+    if message:
+        req_hdr  = message.get("requestHeader",  "")
+        req_body = message.get("requestBody",    "")
+        resp_hdr = message.get("responseHeader", "")
+        resp_body= message.get("responseBody",   "")
+
+        # Combine request header + body into one block for display
+        full_request = req_hdr[:1500]
+        if req_body:
+            full_request = full_request.rstrip() + "\r\n\r\n" + req_body[:500]
+
+        evidence["request_header"]   = req_hdr[:1500]
+        evidence["request_body"]     = req_body[:500]
+        evidence["request"]          = full_request
+        evidence["response_header"]  = resp_hdr[:500]
+        evidence["response_snippet"] = resp_body[:800]
+        if message.get("_har"):
+            evidence["har"] = message["_har"]
+    else:
+        # Low/Info — store raw ZAP fields; no curl reconstruction
+        evidence["poc_url"]    = url
+        evidence["poc_param"]  = alert.get("param",  "")
+        evidence["poc_attack"] = alert.get("attack", "")
+
     return {
-        "name":       alert.get("name","ZAP Alert"),
-        "type":       "web_vulnerability",
-        "risk":       risk_map.get(alert.get("risk",""),"Info"),
-        "url":        url,
-        "description":alert.get("description",""),
-        "solution":   alert.get("solution",""),
-        "confidence": alert.get("confidence",""),
-        "cwe":        alert.get("cweid",""),
-        "evidence": {
-            "type":         "zap_alert",
-            "evidence":     alert.get("evidence",""),
-            "attack":       alert.get("attack",""),
-            "param":        alert.get("param",""),
-            "curl_poc":     f'curl -sk "{url}"',
-            "request":      alert.get("messageId",""),
-            "solution":     alert.get("solution",""),
-        },
+        "name":        alert.get("name",        "ZAP Alert"),
+        "type":        "web_vulnerability",
+        "risk":        risk_map.get(alert.get("risk", ""), "Info"),
+        "url":         url,
+        "description": alert.get("description", ""),
+        "solution":    alert.get("solution",    ""),
+        "confidence":  alert.get("confidence",  ""),
+        "cwe":         alert.get("cweid",       ""),
+        "evidence":    evidence,
     }
 
 
@@ -389,8 +452,6 @@ def _check_cors(headers: dict, url: str, req_str: str, resp) -> list:
 
 
 def _check_sensitive_paths(base_url: str, headers: dict) -> list:
-    import concurrent.futures
-
     paths = [
         ("/.git/HEAD",        "Git Repository Exposed",       "Critical",
          ".git dir publicly accessible — full source code leakable."),
