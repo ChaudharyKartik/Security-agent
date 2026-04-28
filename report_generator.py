@@ -20,10 +20,11 @@ def generate_report(session: dict, format: str = "json") -> list:
     ts   = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     base = f"{REPORTS_DIR}/report_{session.get('session_id','unknown')}_{ts}"
     paths = []
-    if format in ("json","both","all"):  paths.append(_gen_json(session, base))
-    if format in ("html","both","all"):  paths.append(_gen_html(session, base))
-    if format in ("pdf","all"):          paths.append(_gen_pdf(session, base))
-    if format in ("csv","all"):          paths.append(_gen_csv(session, base))
+    if format in ("json","both","all"):         paths.append(_gen_json(session, base))
+    if format in ("html","both","all"):         paths.append(_gen_html(session, base))
+    if format in ("pdf","all"):                 paths.append(_gen_pdf(session, base))
+    if format in ("csv","all"):                 paths.append(_gen_csv(session, base))
+    if format in ("professional","all"):        paths.append(_gen_professional_pdf(session, base))
     return paths
 
 
@@ -503,3 +504,559 @@ pre{{white-space:pre-wrap;word-break:break-all}}
         f.write(html)
     logger.info(f"[REPORT] HTML: {path}")
     return path
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PROFESSIONAL PDF  (industry pentest report style — mirrors sample structure)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _gen_professional_pdf(session: dict, base: str) -> str:
+    path = base + "_professional.pdf"
+    try:
+        from fpdf import FPDF
+    except ImportError:
+        raise RuntimeError("fpdf2 not installed — run: pip install fpdf2")
+
+    summary   = session.get("summary", {})
+    findings  = session.get("enriched_findings", [])
+    target    = session.get("target", "Unknown")
+    auth      = session.get("auth_used", "Unauthenticated")
+    sid       = session.get("session_id", "-")
+    gen_date  = datetime.utcnow().strftime("%d-%b-%Y")
+    gen_dt    = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    bd        = summary.get("severity_breakdown", {})
+    rating    = summary.get("risk_rating", "UNKNOWN")
+    total_f   = summary.get("total_findings", len(findings))
+    modules   = ", ".join(session.get("agents_executed", []) or
+                          session.get("modules_executed", []))
+
+    SEV_RGB = {
+        "Critical": (180, 30, 30),
+        "High":     (200, 75, 10),
+        "Medium":   (180, 100, 0),
+        "Low":      (30, 80, 200),
+        "Info":     (90, 100, 115),
+    }
+    RATING_RGB = {
+        "CRITICAL": (180, 30, 30), "HIGH": (200, 75, 10),
+        "MEDIUM":   (180, 100, 0), "LOW": (30, 80, 200), "CLEAN": (20, 130, 70),
+    }
+
+    class ProPDF(FPDF):
+        def header(self):
+            if self.page_no() == 1:
+                return
+            self.set_font("Helvetica", "B", 8)
+            self.set_text_color(50, 50, 80)
+            self.cell(130, 7, "AI Security Testing Agent v2.0  |  CONFIDENTIAL", 0, 0, "L")
+            self.set_font("Helvetica", "", 8)
+            self.set_text_color(120, 120, 140)
+            self.cell(0, 7, _s(target, 60), 0, 1, "R")
+            self.set_draw_color(180, 180, 200)
+            self.line(10, self.get_y(), 200, self.get_y())
+            self.ln(2)
+
+        def footer(self):
+            self.set_y(-12)
+            self.set_font("Helvetica", "I", 8)
+            self.set_text_color(140, 140, 160)
+            self.cell(0, 8,
+                      f"Page {self.page_no()}  |  Authorized Security Testing Only  |  {gen_dt}",
+                      0, 0, "C")
+
+    pdf = ProPDF()
+    pdf.set_auto_page_break(auto=True, margin=18)
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    def _section_title(text: str):
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_text_color(20, 30, 60)
+        pdf.cell(0, 10, text, 0, 1)
+        pdf.set_draw_color(60, 80, 160)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.set_draw_color(180, 180, 200)
+        pdf.ln(4)
+
+    def _sub_label(text: str):
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(30, 41, 80)
+        pdf.cell(0, 6, text, 0, 1)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(51, 65, 85)
+
+    def _body(text: str, limit: int = 800):
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(51, 65, 85)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 5, _s(text, limit))
+        pdf.set_x(pdf.l_margin)
+        pdf.ln(1)
+
+    def _table_header(*cols_widths):
+        pdf.set_fill_color(25, 35, 70)
+        pdf.set_text_color(240, 240, 255)
+        pdf.set_font("Helvetica", "B", 9)
+        for col, w in cols_widths:
+            pdf.cell(w, 7, f"  {col}", 1, 0, "L", True)
+        pdf.ln()
+
+    # ── PAGE 1: Cover ─────────────────────────────────────────────────────────
+    pdf.add_page()
+
+    # Navy header bar
+    pdf.set_fill_color(15, 23, 60)
+    pdf.rect(0, 0, 210, 55, "F")
+    pdf.set_xy(10, 10)
+    pdf.set_font("Helvetica", "B", 20)
+    pdf.set_text_color(230, 235, 255)
+    pdf.cell(190, 12, "AI Security Testing Agent", 0, 1, "C")
+    pdf.set_xy(10, 24)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(160, 170, 210)
+    pdf.cell(190, 7, "Automated Web Application Security Testing Platform", 0, 1, "C")
+    pdf.set_xy(10, 33)
+    pdf.set_font("Helvetica", "I", 9)
+    pdf.set_text_color(120, 130, 180)
+    pdf.cell(190, 7, "OWASP Top 10  |  NIST SP 800-53  |  CVSS v3.1", 0, 1, "C")
+
+    # Title block
+    pdf.set_xy(10, 70)
+    pdf.set_font("Helvetica", "B", 22)
+    pdf.set_text_color(15, 23, 60)
+    pdf.cell(190, 14, "Final Web Application", 0, 1, "C")
+    pdf.set_font("Helvetica", "B", 22)
+    pdf.cell(190, 14, "Security Testing Report", 0, 1, "C")
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "I", 10)
+    pdf.set_text_color(100, 100, 130)
+    pdf.cell(190, 7, "(This Document is Highly Confidential)", 0, 1, "C")
+
+    # Info box
+    pdf.ln(10)
+    pdf.set_font("Helvetica", "", 10)
+    info_rows = [
+        ("Target", _s(target, 90)),
+        ("Assessment Date", gen_date),
+        ("Session ID", _s(sid, 70)),
+        ("Authentication", _s(auth, 70)),
+        ("Modules Executed", _s(modules or "-", 90)),
+    ]
+    for label, val in info_rows:
+        pdf.set_fill_color(235, 238, 252)
+        pdf.set_text_color(50, 60, 110)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(52, 7, f"  {label}", 1, 0, "L", True)
+        pdf.set_fill_color(252, 252, 255)
+        pdf.set_text_color(30, 35, 60)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(138, 7, f"  {val}", 1, 1, "L", True)
+
+    # Risk rating badge
+    pdf.ln(10)
+    rc = RATING_RGB.get(rating, (100, 100, 120))
+    pdf.set_fill_color(*rc)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(190, 13, f"  Overall Risk Rating:  {rating}", 0, 1, "C", True)
+
+    # ── PAGE 2: Document Details ───────────────────────────────────────────────
+    pdf.add_page()
+    _section_title("Document Details")
+
+    details = [
+        ("Target URL",       _s(target, 100)),
+        ("Submission Date",  gen_date),
+        ("Classification",   "Highly Confidential"),
+        ("Document Type",    "Web Application Security Testing Report"),
+        ("Report Version",   "1.0"),
+    ]
+    pdf.set_font("Helvetica", "", 10)
+    for label, val in details:
+        pdf.set_fill_color(235, 238, 252)
+        pdf.set_text_color(50, 60, 110)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(55, 7, f"  {label}", 1, 0, "L", True)
+        pdf.set_fill_color(252, 252, 255)
+        pdf.set_text_color(30, 35, 60)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 7, f"  {val}", 1, 1, "L", True)
+
+    pdf.ln(8)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(20, 30, 60)
+    pdf.cell(0, 7, "Document History", 0, 1)
+    _table_header(("Version", 25), ("Date", 45), ("Author", 65), ("Comments", 55))
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_fill_color(252, 252, 255)
+    pdf.set_text_color(30, 35, 60)
+    for col, w in [("1.0", 25), (gen_date, 45), ("AI Security Agent", 65), ("Initial Report", 55)]:
+        pdf.cell(w, 6, f"  {col}", 1, 0, "L")
+    pdf.ln()
+
+    # ── PAGE 3: Table of Contents ─────────────────────────────────────────────
+    pdf.add_page()
+    _section_title("Contents")
+
+    toc = [
+        ("1.",    "Executive Summary",                True),
+        ("1.1",   "Test Timeline",                    False),
+        ("1.2",   "Approach",                         False),
+        ("1.3",   "Activities",                       False),
+        ("1.4",   "Summary of Findings",              False),
+        ("2.",    "Vulnerabilities Description",       True),
+    ]
+    for i, f in enumerate(findings, 1):
+        toc.append((f"2.{i}", _s(f.get("name", "Unknown"), 90), False))
+    toc += [
+        ("3.", "Methodology",  True),
+        ("4.", "Conclusion",   True),
+    ]
+
+    for num, title, is_main in toc:
+        if is_main:
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.set_text_color(15, 23, 60)
+        else:
+            pdf.set_font("Helvetica", "", 10)
+            pdf.set_text_color(80, 90, 120)
+        pdf.cell(14, 6, num, 0, 0)
+        pdf.cell(0, 6, title, 0, 1)
+
+    # ── PAGE 4+: Executive Summary ────────────────────────────────────────────
+    pdf.add_page()
+    _section_title("1.  Executive Summary")
+
+    _body(
+        f"This automated security assessment was conducted against {_s(target, 100)} "
+        f"using the AI Security Testing Agent v2.0. "
+        f"The objective was to identify and validate security vulnerabilities by simulating "
+        f"real-world attack scenarios aligned with OWASP Top 10 and NIST SP 800-53 standards. "
+        f"The assessment focused on authentication and authorisation mechanisms, session management, "
+        f"input validation, security misconfiguration, cryptography, and server/client-side attacks."
+    )
+
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(20, 30, 60)
+    pdf.cell(0, 8, "1.1  Test Timeline", 0, 1)
+    dur = session.get("duration_seconds", 0)
+    _body(
+        f"Security testing was performed in an automated scan session on {gen_date}. "
+        f"Total scan duration: {dur} seconds ({round(dur/60, 1)} minutes)."
+    )
+
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(20, 30, 60)
+    pdf.cell(0, 8, "1.2  Approach", 0, 1)
+    _body(
+        "The assessment follows industry-standard methodologies including the OWASP Testing "
+        "Guide v4.2 and NIST SP 800-115. Automated scanning tools (OWASP ZAP, Nmap, Nuclei, Prowler) "
+        "are combined with AI-powered analysis to validate findings, eliminate false positives, "
+        "and score vulnerabilities using CVSS v3.1."
+    )
+
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(20, 30, 60)
+    pdf.cell(0, 8, "1.3  Activities", 0, 1)
+    activities = [
+        "Application reconnaissance, information gathering, and entry point identification",
+        "Automated vulnerability scanning (OWASP ZAP, Nmap, Nuclei, Prowler)",
+        "Manual verification and false positive analysis",
+        "Vulnerability scoring using CVSS v3.1",
+        "AI-powered exploitation narrative and impact analysis",
+        "Reproduction steps generation for developer remediation",
+        "Report preparation with actionable remediation guidance",
+    ]
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(51, 65, 85)
+    for act in activities:
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 5, _s(f"  - {act}", 220))
+
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(20, 30, 60)
+    pdf.cell(0, 8, "1.4  Summary of Findings", 0, 1)
+    _body(
+        f"The AI Security Testing Agent discovered {total_f} vulnerabilities during the "
+        f"assessment of {_s(target, 80)}. Each vulnerability has been classified by severity "
+        f"and includes detailed remediation guidance."
+    )
+
+    # Vulnerability table
+    _table_header(("No.", 12), ("Vulnerability Name", 88), ("Severity", 28), ("CVSS", 22), ("Module", 40))
+    pdf.set_font("Helvetica", "", 9)
+    for i, f in enumerate(findings, 1):
+        sev  = f.get("severity", "Info")
+        srgb = SEV_RGB.get(sev, (90, 100, 115))
+        alt  = (246, 247, 252) if i % 2 == 0 else (255, 255, 255)
+        pdf.set_fill_color(*alt)
+        pdf.set_text_color(30, 35, 60)
+        pdf.cell(12, 6, f"  {i}", 1, 0, "L", True)
+        pdf.cell(88, 6, f"  {_s(f.get('name','Unknown'), 55)}", 1, 0, "L", True)
+        pdf.set_fill_color(*srgb)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(28, 6, sev, 1, 0, "C", True)
+        pdf.set_fill_color(*alt)
+        pdf.set_text_color(30, 35, 60)
+        pdf.cell(22, 6, str(f.get("cvss_score", "-")), 1, 0, "C", True)
+        pdf.cell(40, 6, _s(f.get("module", "-"), 18), 1, 1, "C", True)
+
+    pdf.ln(6)
+
+    # Tabular summary
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(20, 30, 60)
+    pdf.cell(0, 8, "Tabular Summary", 0, 1)
+    summary_rows = [
+        ("Total Number of Vulnerabilities",  str(total_f)),
+        ("Critical Severity Vulnerabilities", str(bd.get("Critical", 0))),
+        ("High Severity Vulnerabilities",     str(bd.get("High", 0))),
+        ("Medium Severity Vulnerabilities",   str(bd.get("Medium", 0))),
+        ("Low Severity Vulnerabilities",      str(bd.get("Low", 0))),
+        ("Informational Vulnerabilities",     str(bd.get("Info", 0))),
+    ]
+    pdf.set_font("Helvetica", "", 10)
+    for label, val in summary_rows:
+        pdf.set_fill_color(235, 238, 252)
+        pdf.set_text_color(50, 60, 110)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(130, 6, f"  {label}", 1, 0, "L", True)
+        pdf.set_fill_color(252, 252, 255)
+        pdf.set_text_color(15, 23, 60)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 6, f"  {val}", 1, 1, "L", True)
+
+    # ── Section 2: Vulnerabilities Description ────────────────────────────────
+    pdf.add_page()
+    _section_title("2.  Vulnerabilities Description")
+
+    for idx, f in enumerate(findings, 1):
+        try:
+            sev  = f.get("severity", "Info")
+            srgb = SEV_RGB.get(sev, (90, 100, 115))
+            name = _s(f.get("name", "Unknown"), 85)
+
+            # Finding header bar
+            pdf.set_fill_color(*srgb)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.cell(0, 9, f"  2.{idx}  {name}", 0, 1, "L", True)
+            pdf.set_text_color(15, 23, 60)
+            pdf.ln(2)
+
+            # Vulnerability Information
+            _sub_label("Vulnerability Information:")
+            _body(f.get("description", "No description available."), 700)
+
+            # Exploit Description
+            narr = (f.get("exploitation_narrative") or "").replace("**", "").replace("__", "")
+            if narr:
+                _sub_label("Exploit Description:")
+                _body(narr, 700)
+
+            # Severity Description (impact from LLM or derived)
+            impact = f.get("impact", "") or f.get("ai_impact", "")
+            if impact:
+                _sub_label("Severity Description:")
+                _body(impact, 500)
+
+            # Vulnerability Severity block
+            _sub_label("Vulnerability Severity:")
+            cvss_str = (f"CVSS v3.1 Vector: {_s(f.get('cvss_vector','N/A'), 70)} "
+                        f"= {f.get('cvss_score','-')} ({sev})")
+            severity_bullets = [
+                ("Risk",           sev),
+                ("Exploitability", f.get("exploitability", "-")),
+                ("CVSS Score",     cvss_str),
+            ]
+            cve = f.get("cve", "")
+            if cve:
+                severity_bullets.append(("CVE Reference", cve))
+            pdf.set_font("Helvetica", "", 10)
+            pdf.set_text_color(51, 65, 85)
+            for blabel, bval in severity_bullets:
+                pdf.set_x(pdf.l_margin)
+                pdf.multi_cell(0, 5, _s(f"  o  {blabel}: {bval}", 280))
+            pdf.ln(2)
+
+            # Category + Compliance
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.set_text_color(30, 41, 80)
+            pdf.cell(35, 5, "Category:", 0, 0)
+            pdf.set_font("Helvetica", "", 10)
+            pdf.set_text_color(51, 65, 85)
+            pdf.cell(0, 5, _s(f.get("type", "-").replace("_", " ").title(), 80), 0, 1)
+
+            comp = f.get("compliance") or []
+            if comp:
+                pdf.set_font("Helvetica", "B", 10)
+                pdf.set_text_color(30, 41, 80)
+                pdf.cell(35, 5, "Compliance:", 0, 0)
+                pdf.set_font("Helvetica", "", 10)
+                pdf.set_text_color(51, 65, 85)
+                pdf.cell(0, 5, _s(" | ".join(comp), 120), 0, 1)
+            pdf.ln(2)
+
+            # Instances
+            url = f.get("url", "")
+            if url:
+                _sub_label("Instances:")
+                pdf.set_font("Courier", "", 9)
+                pdf.set_text_color(30, 50, 150)
+                pdf.set_x(pdf.l_margin)
+                pdf.multi_cell(0, 5, _s(url, 200))
+                if f.get("port"):
+                    pdf.set_font("Helvetica", "", 9)
+                    pdf.set_text_color(80, 90, 110)
+                    pdf.cell(0, 5, _s(f"Port: {f['port']}/{f.get('service','unknown')}", 60), 0, 1)
+                pdf.ln(2)
+
+            # Proof of Concept
+            ev       = f.get("evidence", {}) or {}
+            repro    = f.get("reproduction_steps", [])
+            req_blk  = ev.get("request") or ev.get("request_header", "")
+            resp_hdr = ev.get("response_header", "")
+            resp_bdy = ev.get("response_snippet", "")
+            param    = ev.get("param") or f.get("param", "")
+            attack   = ev.get("attack") or f.get("attack", "")
+            match_s  = ev.get("evidence", "")
+
+            if repro or req_blk or param:
+                _sub_label("Proof-Of-Concept:")
+                poc_intro = "Provided are the steps to reproduce"
+                if req_blk:
+                    poc_intro += ", vulnerable request/response"
+                poc_intro += " which shows that the application is vulnerable."
+                _body(poc_intro, 200)
+
+                if param:
+                    pdf.set_font("Helvetica", "", 10)
+                    pdf.set_text_color(51, 65, 85)
+                    pdf.cell(0, 5, _s(f"Vulnerable Parameter: '{param}'", 100), 0, 1)
+                if attack:
+                    pdf.cell(0, 5, _s(f"Payload: {attack}", 150), 0, 1)
+                pdf.ln(2)
+
+                if repro:
+                    pdf.set_font("Helvetica", "B", 10)
+                    pdf.set_text_color(30, 41, 80)
+                    pdf.cell(0, 5, "Steps to Reproduce:", 0, 1)
+                    pdf.set_font("Helvetica", "", 10)
+                    pdf.set_text_color(51, 65, 85)
+                    for si, step in enumerate(repro, 1):
+                        pdf.set_x(pdf.l_margin)
+                        pdf.multi_cell(0, 5, _s(f"{si}. {step}", 300))
+                    pdf.ln(2)
+
+                if req_blk:
+                    pdf.set_font("Courier", "B", 8)
+                    pdf.set_text_color(40, 60, 160)
+                    pdf.cell(0, 5, "Request:", 0, 1)
+                    pdf.set_font("Courier", "", 7)
+                    pdf.set_fill_color(20, 25, 50)
+                    pdf.set_text_color(180, 195, 255)
+                    pdf.set_x(pdf.l_margin)
+                    pdf.multi_cell(0, 4, _s(req_blk, 600), fill=True)
+                    pdf.set_x(pdf.l_margin)
+                    pdf.ln(2)
+
+                    if resp_hdr or resp_bdy:
+                        resp_combined = resp_hdr
+                        if resp_bdy:
+                            resp_combined = resp_combined.rstrip() + "\r\n\r\n" + resp_bdy
+                        pdf.set_font("Courier", "B", 8)
+                        pdf.set_text_color(40, 60, 160)
+                        pdf.cell(0, 5, "Response:", 0, 1)
+                        pdf.set_font("Courier", "", 7)
+                        pdf.set_fill_color(20, 25, 50)
+                        pdf.set_text_color(180, 195, 255)
+                        pdf.set_x(pdf.l_margin)
+                        pdf.multi_cell(0, 4, _s(resp_combined, 600), fill=True)
+                        pdf.set_x(pdf.l_margin)
+                        pdf.ln(2)
+
+                    if match_s:
+                        pdf.set_font("Helvetica", "B", 9)
+                        pdf.set_text_color(180, 100, 0)
+                        pdf.cell(0, 5, _s(f"Match Found in Response: {match_s}", 220), 0, 1)
+                        pdf.set_text_color(15, 23, 60)
+                pdf.ln(2)
+
+            # Remediation
+            sol = f.get("solution", "") or f.get("ai_remediation", "")
+            if sol:
+                _sub_label("Remediation:")
+                _body(sol, 600)
+
+            pdf.ln(4)
+            pdf.set_draw_color(180, 190, 220)
+            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+            pdf.set_draw_color(180, 180, 200)
+            pdf.ln(5)
+
+        except Exception as _fe:
+            logger.warning(f"[REPORT] Professional PDF skipped '{f.get('name','?')}': {_fe}")
+
+    # ── Section 3: Methodology ────────────────────────────────────────────────
+    pdf.add_page()
+    _section_title("3.  Methodology")
+    _body(
+        "The AI Security Testing Agent follows a structured security testing methodology "
+        "aligned with the OWASP Testing Guide v4.2 and NIST SP 800-115.\n\n"
+        "Phase 1 — Reconnaissance\n"
+        "Passive and active information gathering: DNS enumeration, subdomain discovery, "
+        "port scanning, and service fingerprinting using Nmap.\n\n"
+        "Phase 2 — Vulnerability Scanning\n"
+        "Automated scanning with OWASP ZAP (web application vulnerabilities), Nmap (network), "
+        "Nuclei (CVE detection), and Prowler (cloud misconfiguration checks).\n\n"
+        "Phase 3 — Analysis and Validation\n"
+        "AI-powered false positive analysis using LLM-based confidence scoring. Each finding "
+        "is evaluated for exploitability and rated using CVSS v3.1.\n\n"
+        "Phase 4 — Reporting\n"
+        "Comprehensive report generation including HTTP request/response evidence, exploitation "
+        "narratives, numbered reproduction steps, and actionable remediation guidance.\n\n"
+        "Severity Classification (CVSS v3.1 Base Score):\n"
+        "  Critical: 9.0 - 10.0\n"
+        "  High:     7.0 - 8.9\n"
+        "  Medium:   4.0 - 6.9\n"
+        "  Low:      0.1 - 3.9\n"
+        "  Informational: 0.0",
+        2000
+    )
+
+    # ── Section 4: Conclusion ─────────────────────────────────────────────────
+    pdf.add_page()
+    _section_title("4.  Conclusion")
+
+    crit_n = bd.get("Critical", 0)
+    high_n = bd.get("High", 0)
+    conclusion = (
+        f"The security assessment of {_s(target, 100)} identified {total_f} vulnerabilities "
+        f"across the application and its supporting infrastructure. "
+    )
+    if crit_n:
+        conclusion += (f"{crit_n} Critical severity finding(s) require immediate remediation "
+                       f"as they represent a high risk of full system compromise. ")
+    if high_n:
+        conclusion += f"{high_n} High severity finding(s) should be addressed as a priority. "
+
+    conclusion += (
+        "\n\nRecommendations:\n"
+        "1. Immediately remediate all Critical and High severity findings.\n"
+        "2. Address Medium severity findings within 30 days.\n"
+        "3. Track and remediate Low severity findings as part of regular maintenance.\n"
+        "4. Implement a Secure Software Development Lifecycle (SSDLC) process.\n"
+        "5. Establish a regular security testing cadence (quarterly for production applications).\n"
+        "6. Conduct developer security training covering OWASP Top 10 vulnerability classes.\n\n"
+        "Following remediation, a re-test is strongly recommended to verify that all identified "
+        "vulnerabilities have been successfully resolved and no regressions have been introduced."
+    )
+    _body(conclusion, 2000)
+
+    try:
+        pdf.output(path)
+        logger.info(f"[REPORT] Professional PDF: {path}")
+        return path
+    except Exception as e:
+        logger.error(f"[REPORT] Professional PDF output failed: {e}", exc_info=True)
+        raise

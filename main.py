@@ -478,7 +478,7 @@ def get_feedback(session_id: str, db: Session = Depends(get_db)):
 @app.get("/report/{session_id}")
 def get_report(
     session_id: str,
-    format: str = Query("json", pattern="^(json|html|pdf|csv|all|both)$"),
+    format: str = Query("json", pattern="^(json|html|pdf|csv|professional|all|both)$"),
     db: Session = Depends(get_db),
 ):
     s = _get_session_dict(session_id, db)
@@ -501,7 +501,7 @@ def get_report(
 @app.get("/report/{session_id}/download")
 def download_report(
     session_id: str,
-    format: str = Query("html", pattern="^(json|html|pdf|csv)$"),
+    format: str = Query("html", pattern="^(json|html|pdf|csv|professional)$"),
     db: Session = Depends(get_db),
 ):
     s = _get_session_dict(session_id, db)

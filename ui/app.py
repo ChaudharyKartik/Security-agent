@@ -762,14 +762,15 @@ elif page == "Export":
         st.markdown("### Download Report")
 
         FORMATS = [
-            ("PDF",  "pdf",  "application/pdf",       "vapt_report.pdf"),
-            ("HTML", "html", "text/html",              "vapt_report.html"),
-            ("CSV",  "csv",  "text/csv",               "vapt_report.csv"),
-            ("JSON", "json", "application/json",       "vapt_report.json"),
+            ("Professional PDF", "professional", "application/pdf",  "pdf"),
+            ("PDF",              "pdf",          "application/pdf",  "pdf"),
+            ("HTML",             "html",         "text/html",        "html"),
+            ("CSV",              "csv",          "text/csv",         "csv"),
+            ("JSON",             "json",         "application/json", "json"),
         ]
 
         cols = st.columns(len(FORMATS))
-        for col, (label, fmt, mime, _) in zip(cols, FORMATS):
+        for col, (label, fmt, mime, ext) in zip(cols, FORMATS):
             with col:
                 if st.button(f"Generate {label}", key=f"gen_{fmt}_{sid}"):
                     with st.spinner(f"Generating {label} report…"):
@@ -786,7 +787,6 @@ elif page == "Export":
                 key = f"dl_{fmt}_{sid}"
                 if key in st.session_state:
                     data, ct = st.session_state[key]
-                    ext = fmt
                     st.download_button(
                         label=f"Download {label}",
                         data=data,
