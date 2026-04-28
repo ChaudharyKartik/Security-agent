@@ -275,18 +275,23 @@ if page == "Scan":
         st.markdown("### Target")
         target = st.text_input("URL or IP", placeholder="https://example.com", label_visibility="collapsed")
     with c2:
-        st.markdown("### Scan Type")
-        scan_type = st.selectbox("Scan Type", ["Full", "Quick", "Deep"], label_visibility="collapsed")
-    
+        st.markdown("### Scan Depth")
+        scan_depth_label = st.selectbox("Scan Depth", ["Standard", "Quick", "Deep"], label_visibility="collapsed")
+
     description = st.text_area("Description", placeholder="Assessment notes...", height=60)
-    
+
     st.divider()
-    
+
     with st.expander("Authentication", expanded=False):
         auth_type = st.selectbox("Method", ["None", "Basic", "Form", "Token", "Cookie", "API Key"])
-        
-        cred = {"auth_type": auth_type.lower()}
-        
+
+        # Map UI label → backend value
+        _AUTH_MAP = {
+            "None": "none", "Basic": "basic", "Form": "form",
+            "Token": "token", "Cookie": "cookie", "API Key": "apikey",
+        }
+        cred = {"auth_type": _AUTH_MAP[auth_type]}
+
         if auth_type == "Basic":
             c1, c2 = st.columns(2)
             cred["username"] = c1.text_input("Username")
@@ -298,29 +303,46 @@ if page == "Scan":
             cred["password"] = c2.text_input("Password", type="password")
         elif auth_type == "Token":
             cred["auth_token"] = st.text_input("Token", type="password")
+            c1, c2 = st.columns(2)
+            cred["token_header"] = c1.text_input("Header name", value="Authorization")
+            cred["token_prefix"] = c2.text_input("Prefix", value="Bearer")
+        elif auth_type == "Cookie":
+            c1, c2 = st.columns(2)
+            cred["session_cookie_name"]  = c1.text_input("Cookie name", placeholder="session")
+            cred["session_cookie_value"] = c2.text_input("Cookie value", type="password")
         elif auth_type == "API Key":
             c1, c2 = st.columns(2)
-            cred["api_key_name"] = c1.text_input("Key Name")
+            cred["api_key_name"]  = c1.text_input("Key name", placeholder="X-API-Key")
             cred["api_key_value"] = c2.text_input("Value", type="password")
-    
+            cred["api_key_in"]    = st.selectbox("Send in", ["header", "query"])
+
     col1, col2, col3 = st.columns([2, 1, 1])
-    
+
     with col1:
         pass
-    
+
     with col2:
         include_cloud = st.checkbox("Include Cloud")
-    
+
     with col3:
         launch = st.button("LAUNCH", type="primary", use_container_width=True)
-    
+
+    # Map UI label → backend scan_depth value
+    _DEPTH_MAP = {"Standard": "standard", "Quick": "quick", "Deep": "deep"}
+
     if launch:
         if not target:
             st.error("Enter target")
         elif not alive:
             st.error("API offline")
         else:
-            payload = {"target": target, "run_cloud": include_cloud, "description": description, **cred}
+            payload = {
+                "target":     target,
+                "run_cloud":  include_cloud,
+                "description": description,
+                "scan_depth": _DEPTH_MAP[scan_depth_label],
+                **cred,
+            }
             result = api_post("/scan", payload)
             
             if "error" in result:

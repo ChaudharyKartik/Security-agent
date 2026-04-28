@@ -70,17 +70,27 @@ def _try_zap_scan(url: str, base: str, key: str, config) -> list | None:
         if config and config.auth_type != "none":
             _configure_zap_auth(base, key, url, config)
 
+        # Tune depth based on scan_depth config
+        depth = getattr(config, "scan_depth", "standard") if config else "standard"
+        _DEPTH_CFG = {
+            "quick":    {"max_children": 10,  "spider_timeout": 120, "ascan_timeout": 120},
+            "standard": {"max_children": 50,  "spider_timeout": 180, "ascan_timeout": 300},
+            "deep":     {"max_children": 200, "spider_timeout": 300, "ascan_timeout": 600},
+        }
+        dcfg = _DEPTH_CFG.get(depth, _DEPTH_CFG["standard"])
+
         # Capture the scan ID from spider/ascan action responses.
         # ZAP status endpoints expect a scanId integer, not a URL string.
         spider_r = httpx.get(f"{base}/JSON/spider/action/scan/",
-                             params={"apikey": key, "url": url, "maxChildren": 10}, timeout=10)
+                             params={"apikey": key, "url": url,
+                                     "maxChildren": dcfg["max_children"]}, timeout=10)
         spider_id = spider_r.json().get("scan", "0")
-        _zap_wait("spider", base, key, scan_id=spider_id)
+        _zap_wait("spider", base, key, scan_id=spider_id, timeout=dcfg["spider_timeout"])
 
         ascan_r = httpx.get(f"{base}/JSON/ascan/action/scan/",
                             params={"apikey": key, "url": url, "recurse": "true"}, timeout=10)
         ascan_id = ascan_r.json().get("scan", "0")
-        _zap_wait("ascan", base, key, scan_id=ascan_id)
+        _zap_wait("ascan", base, key, scan_id=ascan_id, timeout=dcfg["ascan_timeout"])
 
         alerts_r = httpx.get(f"{base}/JSON/core/view/alerts/",
                              params={"apikey": key, "baseurl": url}, timeout=10)

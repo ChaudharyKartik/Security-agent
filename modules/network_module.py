@@ -29,15 +29,23 @@ def run_network_scan(target: str, recon_data: dict, config=None, checklist_items
     start = datetime.utcnow()
     host  = recon_data.get("ip_address") or recon_data.get("hostname") or target
 
-    extra_args = ""
-    ports      = DEEP_SCAN_PORTS
+    depth = getattr(config, "scan_depth", "standard") if config else "standard"
+    _DEPTH_CFG = {
+        "quick":    {"timing": "T3", "host_timeout": "60s",  "ports": "22,80,443,8080,8443"},
+        "standard": {"timing": "T4", "host_timeout": "120s", "ports": DEEP_SCAN_PORTS},
+        "deep":     {"timing": "T4", "host_timeout": "300s", "ports": "1-65535"},
+    }
+    dcfg = _DEPTH_CFG.get(depth, _DEPTH_CFG["standard"])
+
+    extra_args = f"--host-timeout {dcfg['host_timeout']}"
+    ports      = dcfg["ports"]
     if config:
-        if config.nmap_extra_args: extra_args = config.nmap_extra_args
-        if config.nmap_ports:      ports      = config.nmap_ports
+        if config.nmap_extra_args: extra_args += f" {config.nmap_extra_args}"
+        if config.nmap_ports:      ports       = config.nmap_ports
         if config.username and config.password:
             extra_args += f" --script-args 'user={config.username},pass={config.password}'"
 
-    scan_data, tool_used = _run_nmap(host, ports, extra_args)
+    scan_data, tool_used = _run_nmap(host, ports, extra_args, timing=dcfg["timing"])
     findings = []
     for host_info in scan_data.get("hosts", []):
         findings.extend(_analyse_host(host_info, target))
@@ -53,11 +61,11 @@ def run_network_scan(target: str, recon_data: dict, config=None, checklist_items
     }
 
 
-def _run_nmap(host: str, ports: str, extra_args: str) -> tuple:
+def _run_nmap(host: str, ports: str, extra_args: str, timing: str = "T4") -> tuple:
     try:
         import nmap  # type: ignore
         nm = nmap.PortScanner()
-        args = f"-sV -sC --open -T4 --host-timeout 120s {extra_args}".strip()
+        args = f"-sV -sC --open -{timing} {extra_args}".strip()
         logger.info(f"[NETWORK] nmap {args} -p {ports} {host}")
         nm.scan(hosts=host, ports=ports, arguments=args)
         hosts_data = []
