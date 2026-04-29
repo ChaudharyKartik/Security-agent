@@ -1,12 +1,17 @@
 """
-Web Agent — ZAP API + built-in HTTP probes.
+Web Agent — ZAP + Nuclei (concurrent) with built-in HTTP probe fallback.
 Auth credentials from ScanConfig are injected into all requests.
 Every finding captures request/response pairs and curl PoC commands.
-Tool label: OWASP ZAP 2.14 (real) | Built-in HTTP Probe (fallback)
+Tool label: OWASP ZAP 2.14 + Nuclei v3 | Built-in HTTP Probe (fallback)
 """
 import concurrent.futures
+import json
 import logging
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 from datetime import datetime
 from urllib.parse import urlparse, urljoin
@@ -16,6 +21,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 TOOL_ZAP      = "OWASP ZAP 2.14"
+TOOL_NUCLEI   = "Nuclei v3"
 TOOL_PROBE    = "Built-in HTTP Probe"
 
 SECURITY_HEADERS = {
@@ -32,26 +38,41 @@ SECURITY_HEADERS = {
 
 def run_web_scan(target: str, config=None, checklist_items=None) -> dict:
     logger.info(f"[WEB] Starting web scan: {target}")
-    start    = datetime.utcnow()
-    url      = target if target.startswith("http") else f"http://{target}"
+    start     = datetime.utcnow()
+    url       = target if target.startswith("http") else f"http://{target}"
     auth_hdrs = config.build_auth_headers() if config else {}
     zap_base  = (config.zap_api_base if config else None) or "http://localhost:8090"
     zap_key   = (config.zap_api_key  if config else None) or "changeme"
 
-    zap_result = _try_zap_scan(url, zap_base, zap_key, config)
+    # Run ZAP and Nuclei concurrently; fall back to built-in probes if both fail.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        zap_future    = ex.submit(_try_zap_scan, url, zap_base, zap_key, config)
+        nuclei_future = ex.submit(_try_nuclei_scan, url, config)
+        zap_result    = zap_future.result()
+        nuclei_result = nuclei_future.result()
+
+    findings: list = []
+    tools:    list = []
+
     if zap_result is not None:
-        findings  = zap_result
-        tool_used = TOOL_ZAP
+        findings.extend(zap_result)
+        tools.append(TOOL_ZAP)
         logger.info(f"[WEB] ZAP: {len(zap_result)} alerts")
-    else:
-        logger.info("[WEB] ZAP unavailable — running built-in HTTP probes")
-        findings  = _probe_target(url, auth_hdrs, config)
-        tool_used = TOOL_PROBE
+
+    if nuclei_result is not None:
+        findings.extend(nuclei_result)
+        tools.append(TOOL_NUCLEI)
+        logger.info(f"[WEB] Nuclei: {len(nuclei_result)} findings")
+
+    if not tools:
+        logger.info("[WEB] ZAP + Nuclei unavailable — running built-in HTTP probes")
+        findings = _probe_target(url, auth_hdrs, config)
+        tools    = [TOOL_PROBE]
 
     return {
         "module":    "web",
         "target":    target,
-        "tool_used": tool_used,
+        "tool_used": " + ".join(tools),
         "scan_time": (datetime.utcnow() - start).total_seconds(),
         "findings":  findings,
         "auth_used": config.build_auth_summary() if config else "Unauthenticated",
@@ -107,33 +128,159 @@ def _try_zap_scan(url: str, base: str, key: str, config) -> list | None:
             return _zap_to_finding(alert, message)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-            return list(ex.map(enrich, alerts))
+            results = list(ex.map(enrich, alerts))
+
+        # Clean up replacer rules added for this scan so they don't persist
+        # across future ZAP scans on the same instance.
+        if config and config.auth_type in ("token", "cookie", "apikey"):
+            try:
+                rules_r = httpx.get(f"{base}/JSON/replacer/view/rules/",
+                                    params={"apikey": key}, timeout=5)
+                for rule in rules_r.json().get("rules", []):
+                    if rule.get("description") == "auth_inject":
+                        httpx.get(f"{base}/JSON/replacer/action/removeRule/",
+                                  params={"apikey": key,
+                                          "description": "auth_inject"}, timeout=5)
+            except Exception:
+                pass
+
+        return results
     except Exception:
         return None
 
 
 def _configure_zap_auth(base: str, key: str, url: str, config):
-    """Push auth config into ZAP context."""
+    """
+    Push auth credentials into ZAP so every spider/active-scan request
+    is authenticated.
+
+    Strategy per auth type:
+      token / cookie / apikey  — ZAP Replacer rules inject the header on
+                                  every request (no context needed)
+      basic                    — ZAP httpAuthentication context + user
+      form                     — ZAP formBasedAuthentication context + user
+    """
     try:
         parsed = urlparse(url)
+
+        # ── Header-based auth (token / cookie / apikey) ───────────────────
+        # Use ZAP Replacer to inject the header into every outgoing request.
+        # This works regardless of scan type and requires no ZAP context.
+        header_to_inject: dict | None = None
+
+        if config.auth_type == "token" and config.auth_token:
+            value = f"{config.token_prefix} {config.auth_token}".strip()
+            header_to_inject = {"header": config.token_header or "Authorization",
+                                 "value": value}
+
+        elif config.auth_type == "cookie" and config.session_cookie_value:
+            name  = config.session_cookie_name or "session"
+            header_to_inject = {"header": "Cookie",
+                                 "value": f"{name}={config.session_cookie_value}"}
+
+        elif config.auth_type == "apikey" and config.api_key_value:
+            if config.api_key_in in ("header", None):
+                header_to_inject = {"header": config.api_key_name or "X-API-Key",
+                                     "value": config.api_key_value}
+            elif config.api_key_in == "query":
+                # Replacer can't modify query params — fall through; the
+                # probes path still sends it via build_auth_headers()
+                logger.info("[ZAP-AUTH] api_key_in=query: injected via probes only")
+
+        if header_to_inject:
+            httpx.get(
+                f"{base}/JSON/replacer/action/addRule/",
+                params={
+                    "apikey":       key,
+                    "description":  "auth_inject",
+                    "enabled":      "true",
+                    "matchType":    "REQ_HEADER",
+                    "matchRegex":   "false",
+                    "matchString":  header_to_inject["header"],
+                    "replacement":  header_to_inject["value"],
+                    "initiators":   "",
+                },
+                timeout=5,
+            )
+            logger.info(f"[ZAP-AUTH] Replacer rule added for header: {header_to_inject['header']}")
+            return  # no context needed for header injection
+
+        # ── Context-based auth (basic / form) ─────────────────────────────
         ctx_r  = httpx.get(f"{base}/JSON/context/action/newContext/",
                            params={"apikey": key, "contextName": "authed"}, timeout=5)
         ctx_id = ctx_r.json().get("contextId", "1")
 
-        if config.auth_type == "form" and config.login_url:
-            httpx.get(f"{base}/JSON/authentication/action/setAuthenticationMethod/",
-                      params={"apikey": key, "contextId": ctx_id,
-                              "authMethodName": "formBasedAuthentication",
-                              "authMethodConfigParams":
-                                  f"loginUrl={config.login_url}&"
-                                  f"loginRequestData={config.username_field}%3D{config.username}%26"
-                                  f"{config.password_field}%3D{config.password}"}, timeout=5)
-        elif config.auth_type == "basic" and config.username:
+        # Include target URL in context scope
+        httpx.get(f"{base}/JSON/context/action/includeInContext/",
+                  params={"apikey": key, "contextId": ctx_id,
+                          "regex": f"{parsed.scheme}://{parsed.netloc}.*"}, timeout=5)
+
+        if config.auth_type == "basic" and config.username and config.password:
+            # Set HTTP authentication method
             httpx.get(f"{base}/JSON/authentication/action/setAuthenticationMethod/",
                       params={"apikey": key, "contextId": ctx_id,
                               "authMethodName": "httpAuthentication",
                               "authMethodConfigParams":
                                   f"hostname={parsed.hostname}&realm="}, timeout=5)
+            # Create user with credentials
+            user_r = httpx.get(f"{base}/JSON/users/action/newUser/",
+                                params={"apikey": key, "contextId": ctx_id,
+                                        "name": "scan_user"}, timeout=5)
+            user_id = user_r.json().get("userId", "0")
+            import urllib.parse as _up
+            creds = _up.urlencode({"username": config.username,
+                                   "password": config.password})
+            httpx.get(f"{base}/JSON/users/action/setAuthenticationCredentials/",
+                      params={"apikey": key, "contextId": ctx_id,
+                              "userId": user_id,
+                              "authCredentialsConfigParams": creds}, timeout=5)
+            httpx.get(f"{base}/JSON/users/action/setUserEnabled/",
+                      params={"apikey": key, "contextId": ctx_id,
+                              "userId": user_id, "enabled": "true"}, timeout=5)
+            httpx.get(f"{base}/JSON/forcedUser/action/setForcedUser/",
+                      params={"apikey": key, "contextId": ctx_id,
+                              "userId": user_id}, timeout=5)
+            httpx.get(f"{base}/JSON/forcedUser/action/setForcedUserModeEnabled/",
+                      params={"apikey": key, "enabled": "true"}, timeout=5)
+            logger.info(f"[ZAP-AUTH] Basic auth configured for user: {config.username}")
+
+        elif config.auth_type == "form" and config.login_url and config.username:
+            username_field = config.username_field or "username"
+            password_field = config.password_field or "password"
+            import urllib.parse as _up
+            login_data = _up.urlencode({
+                username_field: config.username,
+                password_field: config.password or "",
+            })
+            method_params = _up.urlencode({
+                "loginUrl":         config.login_url,
+                "loginRequestData": login_data,
+            })
+            httpx.get(f"{base}/JSON/authentication/action/setAuthenticationMethod/",
+                      params={"apikey": key, "contextId": ctx_id,
+                              "authMethodName": "formBasedAuthentication",
+                              "authMethodConfigParams": method_params}, timeout=5)
+            # Create user
+            user_r = httpx.get(f"{base}/JSON/users/action/newUser/",
+                                params={"apikey": key, "contextId": ctx_id,
+                                        "name": "scan_user"}, timeout=5)
+            user_id = user_r.json().get("userId", "0")
+            creds = _up.urlencode({"username": config.username,
+                                   "password": config.password or ""})
+            httpx.get(f"{base}/JSON/users/action/setAuthenticationCredentials/",
+                      params={"apikey": key, "contextId": ctx_id,
+                              "userId": user_id,
+                              "authCredentialsConfigParams": creds}, timeout=5)
+            httpx.get(f"{base}/JSON/users/action/setUserEnabled/",
+                      params={"apikey": key, "contextId": ctx_id,
+                              "userId": user_id, "enabled": "true"}, timeout=5)
+            httpx.get(f"{base}/JSON/forcedUser/action/setForcedUser/",
+                      params={"apikey": key, "contextId": ctx_id,
+                              "userId": user_id}, timeout=5)
+            httpx.get(f"{base}/JSON/forcedUser/action/setForcedUserModeEnabled/",
+                      params={"apikey": key, "enabled": "true"}, timeout=5)
+            logger.info(f"[ZAP-AUTH] Form auth configured — login: {config.login_url}")
+
     except Exception as e:
         logger.warning(f"[WEB] ZAP auth config failed: {e}")
 
@@ -226,6 +373,153 @@ def _zap_to_finding(alert: dict, message: dict | None = None) -> dict:
         "cwe":         alert.get("cweid",       ""),
         "evidence":    evidence,
     }
+
+
+# ── Nuclei ────────────────────────────────────────────────────────────────────
+
+def _try_nuclei_scan(url: str, config) -> list | None:
+    """
+    Run Nuclei CLI against target. Returns findings list or None if unavailable.
+    Auth headers are injected via -H flags; depth controls severity filter + rate.
+    """
+    if not shutil.which("nuclei"):
+        logger.info("[NUCLEI] nuclei not found in PATH — skipping")
+        return None
+
+    depth = getattr(config, "scan_depth", "standard") if config else "standard"
+    _DEPTH_CFG = {
+        "quick":    {"severity": "critical,high",               "rate": 50,  "timeout": 120},
+        "standard": {"severity": "critical,high,medium",        "rate": 150, "timeout": 300},
+        "deep":     {"severity": "critical,high,medium,low,info","rate": 300, "timeout": 600},
+    }
+    dcfg = _DEPTH_CFG.get(depth, _DEPTH_CFG["standard"])
+
+    auth_hdrs = config.build_auth_headers() if config else {}
+
+    with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False, mode="w") as f:
+        out_file = f.name
+
+    try:
+        cmd = [
+            "nuclei", "-u", url,
+            "-severity", dcfg["severity"],
+            "-rate-limit", str(dcfg["rate"]),
+            "-json-export", out_file,
+            "-no-interactsh",
+            "-silent",
+            "-timeout", "10",
+        ]
+        for hdr, val in auth_hdrs.items():
+            cmd.extend(["-H", f"{hdr}: {val}"])
+
+        logger.info(f"[NUCLEI] Scanning {url} (depth={depth}, severity={dcfg['severity']})")
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=dcfg["timeout"]
+        )
+        if proc.returncode not in (0, 1):
+            logger.warning(f"[NUCLEI] Exited with code {proc.returncode}: {proc.stderr[:200]}")
+
+        findings: list = []
+        if os.path.exists(out_file):
+            with open(out_file, encoding="utf-8", errors="ignore") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data    = json.loads(line)
+                        finding = _nuclei_to_finding(data, url)
+                        if finding:
+                            findings.append(finding)
+                    except json.JSONDecodeError:
+                        pass
+
+        logger.info(f"[NUCLEI] {len(findings)} findings")
+        return findings
+
+    except subprocess.TimeoutExpired:
+        logger.warning(f"[NUCLEI] Scan timed out after {dcfg['timeout']}s")
+        return []
+    except Exception as e:
+        logger.warning(f"[NUCLEI] Error: {e}")
+        return None
+    finally:
+        try:
+            os.unlink(out_file)
+        except Exception:
+            pass
+
+
+def _nuclei_to_finding(result: dict, target: str) -> dict | None:
+    info = result.get("info", {})
+    name = info.get("name") or result.get("template-id", "Nuclei Finding")
+
+    severity  = info.get("severity", "info").capitalize()
+    sev_map   = {"Critical": "Critical", "High": "High", "Medium": "Medium",
+                 "Low": "Low", "Info": "Info"}
+    risk      = sev_map.get(severity, "Info")
+
+    tags  = info.get("tags", [])
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",")]
+    ftype = _nuclei_type_from_tags(tags)
+
+    url   = result.get("matched-at") or target
+    desc  = info.get("description", "").strip() or \
+            f"Nuclei template '{result.get('template-id', '')}' matched on target."
+    sol   = (info.get("remediation", "") or
+             f"Review and remediate '{name}' finding at {url}.").strip()
+
+    evidence: dict = {
+        "type":        "nuclei_finding",
+        "template_id": result.get("template-id", ""),
+        "matched_at":  url,
+        "tags":        tags,
+        "curl_poc":    f'curl -sk -i "{url}"',
+    }
+    req = result.get("request", "")
+    resp = result.get("response", "")
+    if req:
+        evidence["request"] = req[:1500]
+    if resp:
+        evidence["response_snippet"] = resp[:800]
+
+    # Extract CVE from classification block
+    cve_id = ""
+    classification = info.get("classification", {})
+    if isinstance(classification, dict):
+        cve_list = classification.get("cve-id", [])
+        if isinstance(cve_list, list) and cve_list:
+            cve_id = cve_list[0]
+        elif isinstance(cve_list, str):
+            cve_id = cve_list
+
+    finding: dict = {
+        "name":        name,
+        "type":        ftype,
+        "risk":        risk,
+        "url":         url,
+        "description": desc,
+        "solution":    sol,
+        "source":      "nuclei",
+        "evidence":    evidence,
+    }
+    if cve_id:
+        finding["cve"] = cve_id
+    return finding
+
+
+def _nuclei_type_from_tags(tags: list) -> str:
+    tag_set = {t.lower() for t in tags}
+    if "cve" in tag_set:
+        return "vulnerable_version"
+    if tag_set & {"default-login", "default-credentials"}:
+        return "auth_misconfiguration"
+    if tag_set & {"exposure", "disclosure"}:
+        return "information_disclosure"
+    if tag_set & {"ssl", "tls"}:
+        return "ssl_error"
+    return "web_vulnerability"
 
 
 # ── Built-in probes ───────────────────────────────────────────────────────────

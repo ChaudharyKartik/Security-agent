@@ -72,8 +72,9 @@ class ScanConfig(BaseModel):
             headers[self.token_header] = f"{self.token_prefix} {self.auth_token}".strip()
 
         elif self.auth_type == "apikey" and self.api_key_value:
-            if self.api_key_in == "header":
+            if self.api_key_in in ("header", None):
                 headers[self.api_key_name or "X-API-Key"] = self.api_key_value
+            # query/body: injected at request time by the caller, not as a header
 
         elif self.auth_type == "cookie" and self.session_cookie_value:
             name  = self.session_cookie_name or "session"
