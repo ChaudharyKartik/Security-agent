@@ -68,6 +68,10 @@ def run_web_scan(target: str, config=None, checklist_items=None) -> dict:
         logger.info("[WEB] ZAP + Nuclei unavailable — running built-in HTTP probes")
         findings = _probe_target(url, auth_hdrs, config)
         tools    = [TOOL_PROBE]
+    elif len(tools) > 1:
+        before   = len(findings)
+        findings = _dedup_findings(findings)
+        logger.info(f"[WEB] Dedup: {before} → {len(findings)} findings")
 
     return {
         "module":    "web",
@@ -373,6 +377,54 @@ def _zap_to_finding(alert: dict, message: dict | None = None) -> dict:
         "cwe":         alert.get("cweid",       ""),
         "evidence":    evidence,
     }
+
+
+# ── Deduplication ────────────────────────────────────────────────────────────
+
+_SEVERITY_ORDER = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1, "Info": 0}
+
+def _dedup_findings(findings: list) -> list:
+    """
+    Merge findings from multiple tools that describe the same vulnerability.
+    Key: (url, normalised name). On collision the higher-severity finding
+    survives and both evidence dicts are merged — so ZAP's request/response
+    and Nuclei's template/CVE metadata end up in one record.
+    """
+    seen:   dict = {}   # key → index in `out`
+    out:    list = []
+
+    for f in findings:
+        key = (f.get("url", ""), f.get("name", "").lower().strip())
+        if key not in seen:
+            seen[key] = len(out)
+            out.append(f)
+        else:
+            existing = out[seen[key]]
+
+            # Keep the higher severity
+            if (_SEVERITY_ORDER.get(f.get("risk", "Info"), 0) >
+                    _SEVERITY_ORDER.get(existing.get("risk", "Info"), 0)):
+                existing["risk"] = f["risk"]
+
+            # Merge evidence — existing keys are not overwritten so the richer
+            # source (usually ZAP with full req/resp) keeps priority; the other
+            # source fills in any gaps (e.g. Nuclei's template_id / cve fields).
+            merged_ev = dict(f.get("evidence", {}))
+            merged_ev.update(existing.get("evidence", {}))
+            existing["evidence"] = merged_ev
+
+            # Carry over CVE / CWE if the survivor is missing them
+            for field in ("cve", "cwe", "confidence"):
+                if field not in existing and field in f:
+                    existing[field] = f[field]
+
+            # Note that both tools flagged this finding
+            sources = existing.get("_sources", [existing.get("source", "zap")])
+            if f.get("source") and f["source"] not in sources:
+                sources.append(f["source"])
+            existing["_sources"] = sources
+
+    return out
 
 
 # ── Nuclei ────────────────────────────────────────────────────────────────────
