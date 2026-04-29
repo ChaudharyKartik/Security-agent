@@ -505,7 +505,6 @@ elif page == "Review":
     if not sessions_list:
         st.info("No scans available. Start a new assessment in the Scan tab.")
     else:
-        # Newest first; show session_id + target so user knows exactly which scan
         session_options = {
             f"[{s.get('session_id')}]  {s.get('target','?')}  ({s.get('total_findings',0)} findings  ·  {s.get('risk_rating','-')})": s.get("session_id")
             for s in sessions_list
@@ -513,45 +512,192 @@ elif page == "Review":
 
         selected_display = st.selectbox("Select Scan Session", list(session_options.keys()))
         sid = session_options[selected_display]
-        
+
         data = api_get(f"/session/{sid}")
         if not data:
             st.error("Session not found")
         else:
             findings = data.get("enriched_findings", [])
-            summary = data.get("summary", {})
-            bd = summary.get("severity_breakdown", {})
-            
+            summary  = data.get("summary", {})
+            bd       = summary.get("severity_breakdown", {})
+            status   = data.get("status", "")
+
+            # ── Severity summary ─────────────────────────────────────────────
             st.markdown("### Severity Breakdown")
             c1, c2, c3, c4, c5 = st.columns(5)
-            for col, sev in [(c1, "Critical"), (c2, "High"), (c3, "Medium"), (c4, "Low"), (c5, "Info")]:
+            for col, sev in [(c1,"Critical"),(c2,"High"),(c3,"Medium"),(c4,"Low"),(c5,"Info")]:
                 with col:
                     st.metric(sev, bd.get(sev, 0))
-            
+
+            # ── Review queue banner ──────────────────────────────────────────
+            queue = api_get(f"/session/{sid}/review/queue")
+            if queue and queue.get("needs_review", 0) > 0:
+                st.divider()
+                needs   = queue["needs_review"]
+                reviewed = queue.get("reviewed", 0)
+                pending  = queue.get("pending", needs)
+                auto_sup = queue.get("auto_suppressed", 0)
+
+                if queue.get("complete"):
+                    st.success(f"All {needs} review items signed off. Session ready for export.")
+                else:
+                    st.warning(
+                        f"**{pending} of {needs} findings pending analyst review** "
+                        f"({reviewed} reviewed · {auto_sup} auto-suppressed by AI)"
+                    )
+                    st.progress(reviewed / needs if needs else 1.0,
+                                text=f"{reviewed}/{needs} reviewed")
+
+                    # ── Pending queue items (quick-action cards) ─────────────
+                    st.markdown("#### Pending Review Queue")
+                    pending_ids = {
+                        item["finding_id"]
+                        for item in queue.get("items", [])
+                        if item.get("review_status") == "pending"
+                    }
+
+                    if "batch_decisions" not in st.session_state:
+                        st.session_state["batch_decisions"] = {}
+
+                    for item in queue.get("items", []):
+                        if item.get("review_status") != "pending":
+                            continue
+                        fid  = item["finding_id"]
+                        sev  = item["severity"]
+                        name = item["name"]
+                        cvss = item.get("cvss_score", "-")
+
+                        sev_colors = {
+                            "Critical": "#dc2626", "High": "#ea580c",
+                            "Medium": "#d97706", "Low": "#16a34a", "Info": "#0891b2",
+                        }
+                        color = sev_colors.get(sev, "#6b7280")
+
+                        st.markdown(
+                            f'<div style="border-left: 4px solid {color}; '
+                            f'background:#1a1f2e; padding:12px 16px; '
+                            f'border-radius:6px; margin-bottom:8px;">'
+                            f'<b style="color:{color}">[{sev}]</b> {name} &nbsp;'
+                            f'<span style="color:#a0a8b8; font-size:12px;">CVSS {cvss} · {item.get("reason","")}</span>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+
+                        qa1, qa2, qa3, qa4, qa5 = st.columns(5)
+                        decision = st.session_state["batch_decisions"].get(fid, {})
+
+                        with qa1:
+                            if st.button("Confirm", key=f"q_confirm_{fid}"):
+                                st.session_state["batch_decisions"][fid] = {
+                                    "finding_id": fid, "action": "confirm"}
+                                st.rerun()
+                        with qa2:
+                            if st.button("False Positive", key=f"q_fp_{fid}"):
+                                st.session_state["batch_decisions"][fid] = {
+                                    "finding_id": fid, "action": "false_positive"}
+                                st.rerun()
+                        with qa3:
+                            if st.button("Downgrade", key=f"q_down_{fid}"):
+                                st.session_state[f"show_sev_{fid}"] = "downgrade"
+                                st.rerun()
+                        with qa4:
+                            if st.button("Escalate", key=f"q_esc_{fid}"):
+                                st.session_state[f"show_sev_{fid}"] = "escalate"
+                                st.rerun()
+                        with qa5:
+                            if st.button("Needs Retest", key=f"q_retest_{fid}"):
+                                st.session_state["batch_decisions"][fid] = {
+                                    "finding_id": fid, "action": "needs_retest"}
+                                st.rerun()
+
+                        # Severity picker for downgrade / escalate
+                        sev_action = st.session_state.get(f"show_sev_{fid}")
+                        if sev_action:
+                            new_sev = st.selectbox(
+                                f"New severity for {sev_action}",
+                                ["Critical", "High", "Medium", "Low", "Info"],
+                                key=f"newsev_{fid}",
+                            )
+                            if st.button(f"Apply {sev_action}", key=f"apply_sev_{fid}"):
+                                st.session_state["batch_decisions"][fid] = {
+                                    "finding_id": fid, "action": sev_action,
+                                    "new_severity": new_sev,
+                                }
+                                del st.session_state[f"show_sev_{fid}"]
+                                st.rerun()
+
+                        # Show queued decision badge
+                        if fid in st.session_state["batch_decisions"]:
+                            d = st.session_state["batch_decisions"][fid]
+                            st.caption(f"Queued: **{d['action'].upper()}**"
+                                       + (f" → {d.get('new_severity','')}" if d.get("new_severity") else ""))
+
+                    # ── Submit all queued decisions ───────────────────────────
+                    st.divider()
+                    queued_count = len(st.session_state.get("batch_decisions", {}))
+                    analyst_name = st.text_input("Analyst name", value="Security Analyst",
+                                                 key="analyst_name_input")
+                    submit_col, clear_col = st.columns([1, 1])
+                    with submit_col:
+                        if st.button(
+                            f"Submit {queued_count} Decision(s)",
+                            type="primary",
+                            disabled=queued_count == 0,
+                            use_container_width=True,
+                        ):
+                            decisions = list(st.session_state["batch_decisions"].values())
+                            for d in decisions:
+                                d["analyst"] = analyst_name
+                            result = api_post(f"/session/{sid}/review", {
+                                "decisions": decisions,
+                                "analyst":   analyst_name,
+                            })
+                            if result.get("error"):
+                                st.error(result["error"])
+                            else:
+                                st.session_state["batch_decisions"] = {}
+                                prog = result.get("queue_progress", {})
+                                if prog.get("complete"):
+                                    st.success("All findings reviewed. Session marked complete.")
+                                else:
+                                    st.success(
+                                        f"{len(decisions)} decision(s) submitted. "
+                                        f"{prog.get('pending', '?')} still pending."
+                                    )
+                                st.rerun()
+                    with clear_col:
+                        if st.button("Clear Queue", use_container_width=True):
+                            st.session_state["batch_decisions"] = {}
+                            st.rerun()
+
+            elif queue:
+                st.divider()
+                st.success(
+                    f"No findings require review "
+                    f"({queue.get('auto_suppressed', 0)} auto-suppressed by AI)."
+                )
+
+            # ── Full findings list ───────────────────────────────────────────
             st.divider()
-            
-            st.markdown("### Finding Details")
-            
+            st.markdown("### All Findings")
+
             if not findings:
                 st.info("No findings")
             else:
-                # Filter and sort
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     filter_severity = st.multiselect(
                         "Filter Severity",
                         ["Critical", "High", "Medium", "Low", "Info"],
-                        default=["Critical", "High", "Medium", "Low", "Info"],  # show ALL by default
+                        default=["Critical", "High", "Medium", "Low", "Info"],
                     )
                 with col2:
                     sort_by = st.selectbox("Sort by", ["Severity", "CVSS Score", "Module"])
                 with col3:
                     filter_module = st.multiselect(
-                        "Filter Module",
-                        ["recon", "web", "network", "cloud"],
-                        default=[],
+                        "Filter Module", ["recon", "web", "network", "cloud"], default=[],
                     )
-                
+
                 st.divider()
 
                 filtered = [f for f in findings if f.get("severity") in filter_severity]
@@ -562,7 +708,6 @@ elif page == "Review":
                     filtered = sorted(filtered, key=lambda x: x.get("cvss_score") or 0, reverse=True)
                 elif sort_by == "Module":
                     filtered = sorted(filtered, key=lambda x: x.get("module", ""))
-                # default: Severity order
                 else:
                     sev_order = {"Critical":0,"High":1,"Medium":2,"Low":3,"Info":4}
                     filtered = sorted(filtered, key=lambda x: sev_order.get(x.get("severity","Info"), 5))
@@ -571,27 +716,37 @@ elif page == "Review":
 
                 for idx, f in enumerate(filtered):
                     finding_id = f.get("id", f"finding_{idx}")
-                    severity = f.get("severity", "Info")
-                    name = f.get("name", "Unknown")
-                    cvss = f.get("cvss_score", "-")
-                    
-                    with st.expander(f"[{severity}] {name} (CVSS {cvss})"):
-                        # Main finding info
+                    severity   = f.get("severity", "Info")
+                    name       = f.get("name", "Unknown")
+                    cvss       = f.get("cvss_score", "-")
+                    reviewed   = f.get("reviewed", False)
+                    rev_status = f.get("review_status", "")
+
+                    # Mark reviewed items visually
+                    status_tag = ""
+                    if rev_status == "confirm":
+                        status_tag = " ✅"
+                    elif rev_status == "false_positive":
+                        status_tag = " ❌ FP"
+                    elif rev_status == "needs_retest":
+                        status_tag = " 🔁"
+                    elif rev_status in ("downgrade", "escalate"):
+                        status_tag = f" ↕ {rev_status.title()}"
+
+                    with st.expander(f"[{severity}] {name} (CVSS {cvss}){status_tag}"):
                         col_left, col_right = st.columns([2, 1])
-                        
+
                         with col_left:
                             st.markdown("**Description**")
                             st.write(f.get("description", "N/A"))
-                            
+
                             st.markdown("**Recommendation**")
                             st.write(f.get("solution", "N/A"))
-                            
-                            # PROOF OF CONCEPT / EVIDENCE
+
                             evidence = f.get("evidence", {})
                             if evidence:
                                 st.markdown("**Proof of Concept**")
 
-                                # Real HTTP exchange (ZAP High/Medium findings)
                                 if evidence.get("request_header") or evidence.get("request"):
                                     st.markdown("_HTTP Request_")
                                     req_block = evidence.get("request") or evidence.get("request_header", "")
@@ -606,25 +761,22 @@ elif page == "Review":
                                             resp_block = resp_block.rstrip() + "\r\n\r\n" + resp_body
                                         st.code(resp_block, language="http")
 
-                                    # Match highlight — ZAP's exact matched string in the response
                                     match_str = evidence.get("evidence", "")
                                     if match_str:
                                         st.warning(f"**Match Found in Response:** `{match_str}`")
 
-                                    # HAR download — importable into Burp Suite / browser DevTools
                                     if evidence.get("har"):
                                         import json as _json
                                         har_bytes = _json.dumps(evidence["har"], indent=2).encode()
                                         st.download_button(
                                             label="Download HAR (Burp/DevTools import)",
                                             data=har_bytes,
-                                            file_name=f"{f.get('name','finding').replace(' ','_')}.har",
+                                            file_name=f"{name.replace(' ','_')}.har",
                                             mime="application/json",
-                                            key=f"har_{f.get('id', i)}",
+                                            key=f"har_{finding_id}",
                                         )
 
                                 elif evidence.get("poc_url"):
-                                    # Low/Info ZAP findings — no full exchange captured
                                     st.caption(f"URL: {evidence['poc_url']}")
                                     if evidence.get("poc_param"):
                                         st.caption(f"Parameter: {evidence['poc_param']}")
@@ -632,35 +784,27 @@ elif page == "Review":
                                         st.caption(f"Attack: {evidence['poc_attack']}")
 
                                 elif evidence.get("curl_poc"):
-                                    # Built-in probe findings (header checks, CORS, etc.)
                                     st.code(evidence["curl_poc"], language="bash")
                                     if evidence.get("response_headers"):
                                         st.markdown("_Response Headers_")
                                         st.code(evidence["response_headers"], language="http")
 
-                                # Reproduction steps
                                 steps = f.get("reproduction_steps") or []
                                 if steps:
                                     st.markdown("**Reproduction Steps**")
                                     for n, step in enumerate(steps, 1):
                                         st.markdown(f"{n}. {step}")
 
-                                # Network-specific evidence
                                 if evidence.get("nmap_cmd"):
                                     st.markdown("_Network Scan_")
                                     st.code(evidence["nmap_cmd"], language="bash")
                                     if evidence.get("banner"):
                                         st.caption(f"Banner: {evidence['banner']}")
-                                    st.divider()
 
-                                if evidence.get("affected_url"):
-                                    st.info(f"Affected URL: {evidence['affected_url']}")
-                            
-                            # Compliance info
                             if f.get("compliance"):
                                 st.markdown("**Compliance**")
                                 st.write(", ".join(f["compliance"]))
-                        
+
                         with col_right:
                             st.markdown("**Severity**")
                             st.write(severity)
@@ -682,61 +826,31 @@ elif page == "Review":
                                 st.markdown("**CVE**")
                                 st.write(f["cve"])
 
-                            # ── AI Analysis block ────────────────────────────────
                             if f.get("llm_analysed"):
                                 st.divider()
-                                st.markdown("**🧠 AI Analysis**")
-
-                                conf = f.get("confidence_score", 0)
+                                st.markdown("**AI Analysis**")
+                                conf     = f.get("confidence_score", 0)
                                 conf_pct = int(conf * 100)
                                 st.progress(conf, text=f"Confidence: {conf_pct}%")
-
                                 fp_status = f.get("fp_status", "uncertain")
-                                fp_colors = {
-                                    "confirmed":              "🟢 Confirmed",
-                                    "likely_false_positive":  "🔴 Likely False Positive",
-                                    "uncertain":              "🟡 Uncertain",
+                                fp_labels = {
+                                    "confirmed":             "Confirmed",
+                                    "likely_false_positive": "Likely False Positive",
+                                    "uncertain":             "Uncertain",
                                 }
-                                st.caption(fp_colors.get(fp_status, fp_status))
-
+                                st.caption(fp_labels.get(fp_status, fp_status))
                                 if f.get("fp_reason"):
-                                    st.caption(f"💬 {f['fp_reason']}")
-                        
-                        # Validation buttons
-                        st.divider()
-                        st.markdown("**Validation**")
-                        
-                        col_validate = st.columns(3)
-                        
-                        with col_validate[0]:
-                            if st.button("Approve", key=f"approve_{finding_id}"):
-                                api_post(f"/validate/{sid}", {
-                                    "finding_id": finding_id,
-                                    "action": "approve",
-                                    "validator_name": "Security Analyst"
-                                })
-                                st.success("Approved")
-                                st.rerun()
-                        
-                        with col_validate[1]:
-                            if st.button("Reject", key=f"reject_{finding_id}"):
-                                api_post(f"/validate/{sid}", {
-                                    "finding_id": finding_id,
-                                    "action": "reject",
-                                    "validator_name": "Security Analyst"
-                                })
-                                st.success("Rejected")
-                                st.rerun()
-                        
-                        with col_validate[2]:
-                            if st.button("Escalate", key=f"escalate_{finding_id}"):
-                                api_post(f"/validate/{sid}", {
-                                    "finding_id": finding_id,
-                                    "action": "escalate",
-                                    "validator_name": "Security Analyst"
-                                })
-                                st.success("Escalated")
-                                st.rerun()
+                                    st.caption(f"{f['fp_reason']}")
+
+                            # Show analyst decision if already reviewed
+                            if reviewed:
+                                st.divider()
+                                st.markdown("**Analyst Decision**")
+                                st.caption(f"Action: **{rev_status.upper()}**")
+                                if f.get("reviewer"):
+                                    st.caption(f"By: {f['reviewer']}")
+                                if f.get("reviewer_notes"):
+                                    st.caption(f"Notes: {f['reviewer_notes']}")
 
 # ────────────────────────────────────────────────────────────────────────────
 # PAGE: EXPORT

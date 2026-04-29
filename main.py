@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from orchestrator import Orchestrator
 from agents.knowledge_agent import KnowledgeAgent, MODE_FULL
+from agents.reviewer_agent import ReviewerAgent
 from scan_config import ScanConfig
 from validator import validate_finding, validate_batch, get_validation_stats
 from report_generator import generate_report
@@ -62,7 +63,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 # Completed sessions are read from DB. On restart active scans are lost (acceptable).
 sessions: dict = {}
 
-_ka = KnowledgeAgent()   # singleton — loaded once at startup
+_ka       = KnowledgeAgent()    # singleton — loaded once at startup
+_reviewer = ReviewerAgent()
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -129,6 +131,19 @@ class BatchValidationRequest(BaseModel):
     approved_ids:   list[str] = []
     rejected_ids:   list[str] = []
     validator_name: str
+
+
+class ReviewDecision(BaseModel):
+    finding_id:   str
+    action:       str           # confirm | false_positive | downgrade | escalate | needs_retest
+    analyst:      str = "Security Analyst"
+    notes:        str = ""
+    new_severity: Optional[str] = None   # required for downgrade / escalate
+
+
+class ReviewSubmission(BaseModel):
+    decisions:    list[ReviewDecision]
+    analyst:      str = "Security Analyst"
 
 
 # ── Background scan task ───────────────────────────────────────────────────────
@@ -470,6 +485,71 @@ def get_feedback(session_id: str, db: Session = Depends(get_db)):
             }
             for r in rows
         ],
+    }
+
+
+# ── Reviewer routes ───────────────────────────────────────────────────────────
+
+@app.get("/session/{session_id}/review/queue")
+def get_review_queue(session_id: str, db: Session = Depends(get_db)):
+    """Return the review queue for this session — which findings need analyst sign-off."""
+    s = _get_session_dict(session_id, db)
+    queue = s.get("review_queue")
+    if not queue:
+        # Build on-demand if the session pre-dates the reviewer agent
+        findings = s.get("enriched_findings", [])
+        queue    = _reviewer.build_review_queue(findings)
+    return queue
+
+
+@app.post("/session/{session_id}/review")
+def submit_review(session_id: str, req: ReviewSubmission,
+                  db: Session = Depends(get_db)):
+    """
+    Submit analyst decisions for one or more findings.
+    Applies decisions, refreshes the review queue, and marks session complete
+    when all queued items have been reviewed.
+    """
+    s = _get_session_dict(session_id, db)
+    if s.get("status") not in ("awaiting_validation",):
+        raise HTTPException(400, f"Session not awaiting review. Status: {s.get('status')}")
+
+    decisions = [d.model_dump() for d in req.decisions]
+    updated   = _reviewer.apply_decisions(s.get("enriched_findings", []), decisions)
+
+    # Refresh queue progress
+    queue = s.get("review_queue") or _reviewer.build_review_queue(updated)
+    queue = _reviewer.refresh_progress(queue, updated)
+
+    # Determine new session status
+    new_status = "completed" if queue["complete"] else "awaiting_validation"
+
+    # Sync to in-memory session
+    if session_id in sessions:
+        sessions[session_id]["enriched_findings"] = updated
+        sessions[session_id]["review_queue"]      = queue
+        sessions[session_id]["status"]            = new_status
+
+    # Persist to DB
+    try:
+        crud.update_session_status(db, session_id, new_status)
+        crud.save_findings(db, session_id, updated)
+    except Exception as e:
+        logger.warning(f"[REVIEW] DB persist failed: {e}")
+
+    reviewed  = sum(1 for d in decisions)
+    logger.info(f"[REVIEW] {session_id} — {reviewed} decisions applied, status={new_status}")
+
+    return {
+        "message":      f"{reviewed} decision(s) applied",
+        "session_id":   session_id,
+        "status":       new_status,
+        "queue_progress": {
+            "needs_review": queue["needs_review"],
+            "reviewed":     queue["reviewed"],
+            "pending":      queue["pending"],
+            "complete":     queue["complete"],
+        },
     }
 
 

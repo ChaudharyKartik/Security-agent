@@ -17,6 +17,7 @@ from datetime import datetime
 
 from agents.knowledge_agent import KnowledgeAgent, ExecutionPlan, MODE_FULL
 from agents.fp_agent import analyse_findings
+from agents.reviewer_agent import ReviewerAgent
 from modules.recon import run_recon
 from modules.network_module import run_network_scan
 from modules.web_module import run_web_scan
@@ -26,8 +27,9 @@ from database import crud
 
 logger = logging.getLogger(__name__)
 
-# Singleton registry — loaded once, shared across all scan sessions
+# Singletons — loaded once, shared across all scan sessions
 _knowledge_agent = KnowledgeAgent()
+_reviewer_agent  = ReviewerAgent()
 
 
 class Orchestrator:
@@ -144,10 +146,14 @@ class Orchestrator:
             session["enriched_findings"] = analyse_findings(
                 session["enriched_findings"]
             )
+            # ── Phase 6: Reviewer Agent — build human review queue ─────────────
+            _set("awaiting_validation")
+            session["review_queue"] = _reviewer_agent.build_review_queue(
+                session["enriched_findings"]
+            )
             # Rebuild summary after AI re-scoring (confidence scores may change)
             session["summary"] = self._build_summary(
                 session["enriched_findings"], session, plan)
-            _set("awaiting_validation")
 
         except Exception as e:
             logger.error(f"[ORCHESTRATOR] Fatal error: {e}", exc_info=True)
