@@ -12,16 +12,20 @@ security-agent/
 ├── validator.py             ← Human validation logic
 ├── report_generator.py      ← PDF + JSON report generation
 ├── requirements.txt
+├── Dockerfile               ← Container image (API + UI + tools)
+├── docker-compose.yml       ← One-command stack: api + ui + zap
+├── .dockerignore
 │
 ├── agents/
 │   ├── knowledge_agent.py   ← Resolves WSTG checklist → execution plan
 │   ├── fp_agent.py          ← AI false-positive analysis (LLM-powered)
-│   └── llm_client.py        ← Multi-provider LLM client (Groq/Gemini/Ollama)
+│   ├── reviewer_agent.py    ← Human review queue + analyst decision engine
+│   └── llm_client.py        ← Multi-provider LLM client (Groq/Gemini/OpenRouter/Ollama)
 │
 ├── modules/
 │   ├── recon.py             ← DNS, banner grab, port pre-scan
 │   ├── network_module.py    ← Nmap wrapper (real + mock fallback)
-│   ├── web_module.py        ← OWASP ZAP wrapper (real + built-in probes)
+│   ├── web_module.py        ← ZAP + Nuclei concurrent scan (built-in probes fallback)
 │   └── cloud_module.py      ← Prowler wrapper (real + mock fallback)
 │
 ├── checklist/
@@ -42,18 +46,76 @@ security-agent/
 
 ---
 
-## Prerequisites
+## Option A — Docker Compose (recommended)
+
+Single command starts everything: ZAP, FastAPI backend, and Streamlit UI.
+
+### Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| Docker Desktop | https://docs.docker.com/get-docker/ |
+| Docker Compose v2 | Bundled with Docker Desktop |
+
+### Step 1 — Create `.env`
+
+```bash
+# ── LLM provider (AI false-positive analysis) ─────────────
+LLM_PROVIDER=groq          # groq | gemini | openrouter | ollama | none
+
+GROQ_API_KEY=your_groq_api_key
+# GEMINI_API_KEY=your_gemini_api_key
+# OPENROUTER_API_KEY=your_openrouter_api_key
+
+# ── Database (optional — SQLite used by default) ──────────
+# DATABASE_URL=postgresql://user:password@localhost:5432/vapt
+```
+
+> `ZAP_API_BASE` and `API_BASE` are set automatically by docker-compose.yml — do not add them to `.env`.
+
+### Step 2 — Build and start
+
+```bash
+docker compose up --build
+```
+
+First build takes 3–5 minutes (downloads Nuclei templates). Subsequent starts are fast.
+
+| Service | URL |
+|---------|-----|
+| Streamlit UI | http://localhost:8501 |
+| FastAPI API | http://localhost:8000 |
+| ZAP daemon | http://localhost:8090 (internal to stack) |
+
+### Useful compose commands
+
+```bash
+docker compose up -d          # run in background
+docker compose logs -f api    # stream API logs
+docker compose logs -f zap    # stream ZAP logs
+docker compose down           # stop all services
+docker compose down -v        # stop + delete DB volume (full reset)
+```
+
+> ZAP takes ~60 seconds to become healthy. The API waits for it before starting.
+
+---
+
+## Option B — Local / Manual Setup
+
+Use this when you want to develop or debug without Docker.
+
+### Prerequisites
 
 | Requirement | Version | Notes |
 |-------------|---------|-------|
 | Python | 3.11+ | Required |
 | Nmap | 7.x+ | Optional — mock fallback if absent |
+| Nuclei | 3.x+ | Optional — ZAP probes used if absent |
 | OWASP ZAP | 2.14+ | Optional — built-in HTTP probes if absent |
 | Prowler | 5.x+ | Optional — mock cloud findings if absent |
 
----
-
-## Step 1 — Create and activate a virtual environment
+### Step 1 — Virtual environment
 
 ```bash
 python -m venv venv
@@ -65,20 +127,16 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
----
-
-## Step 2 — Install Python dependencies
+### Step 2 — Install dependencies
 
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
----
+### Step 3 — Install scanning tools
 
-## Step 3 — Install scanning tools
-
-### Nmap
+#### Nmap
 
 ```bash
 # Ubuntu/Debian
@@ -88,14 +146,23 @@ sudo apt install nmap
 brew install nmap
 
 # Windows — download installer from https://nmap.org/download.html
-# Verify:
 nmap --version
 ```
 
-### OWASP ZAP
+#### Nuclei
 
-1. Download from https://www.zaproxy.org/download/
-2. Start ZAP in daemon mode:
+```bash
+# Linux / macOS
+go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+nuclei -update-templates
+
+# Windows — download from https://github.com/projectdiscovery/nuclei/releases
+nuclei -version
+```
+
+#### OWASP ZAP
+
+Start ZAP in daemon mode (required only for local runs — Docker Compose handles this automatically):
 
 ```bash
 # Windows
@@ -105,83 +172,45 @@ zap.bat -daemon -port 8090 -config api.key=changeme
 ./zap.sh -daemon -port 8090 -config api.key=changeme
 ```
 
-ZAP runs on `http://localhost:8090` by default. The web module auto-detects it there.
+#### Prowler (cloud scans only)
 
-### Prowler (cloud scans only)
-
-Prowler is installed automatically with `pip install -r requirements.txt` since it is listed as a Python package. No extra installation needed.
-
-Configure AWS credentials before running cloud scans:
+Installed via `pip install -r requirements.txt`. Configure AWS credentials before running cloud scans:
 
 ```bash
 aws configure
-# or set environment variables:
-# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
+# or set: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
 ```
 
----
+### Step 4 — Configure environment variables
 
-## Step 4 — Configure environment variables
-
-Create a `.env` file in the project root (or set these in your shell):
+Create a `.env` file in the project root:
 
 ```bash
-# ── ZAP ──────────────────────────────────────────────
+# ── ZAP ──────────────────────────────────────────────────
 ZAP_API_BASE=http://localhost:8090
 ZAP_API_KEY=changeme
 
-# ── AI False-Positive Analysis (pick one provider) ───
+# ── LLM provider ─────────────────────────────────────────
 LLM_PROVIDER=groq          # groq | gemini | openrouter | ollama | none
 
-# Groq (free tier, fastest — recommended)
 GROQ_API_KEY=your_groq_api_key
-
-# Gemini (free tier)
-# LLM_PROVIDER=gemini
 # GEMINI_API_KEY=your_gemini_api_key
-
-# OpenRouter
-# LLM_PROVIDER=openrouter
 # OPENROUTER_API_KEY=your_openrouter_api_key
+# OLLAMA_MODEL=gemma3:4b   # if using local Ollama
 
-# Local Ollama (no API key needed, slowest)
-# LLM_PROVIDER=ollama
-# OLLAMA_MODEL=gemma3:4b
-
-# Disable AI analysis entirely
-# LLM_PROVIDER=none
-
-# ── Database ─────────────────────────────────────────
-# Default: SQLite (vapt.db in project root) — no config needed
-# PostgreSQL:
+# ── Database (optional) ───────────────────────────────────
 # DATABASE_URL=postgresql://user:password@localhost:5432/vapt
 ```
 
 > Get a free Groq API key at https://console.groq.com — no credit card required.
 
----
-
-## Step 5 — Start the FastAPI backend
+### Step 5 — Start the API
 
 ```bash
-# From project root with venv active
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Verify it's running:
-
-```bash
-curl http://localhost:8000/health
-# {"status":"healthy","db":"ok","sessions_active":0}
-```
-
-API docs:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
----
-
-## Step 6 — Start the Streamlit UI
+### Step 6 — Start the UI
 
 Open a second terminal (with venv active):
 
@@ -193,7 +222,7 @@ Open: **http://localhost:8501**
 
 ---
 
-## Step 7 — Run your first scan
+## Running your first scan
 
 ### Via the UI
 
@@ -202,8 +231,8 @@ Open: **http://localhost:8501**
 3. Enter a target URL (e.g. `https://testphp.vulnweb.com`)
 4. Choose scan mode: `full` (all 101 tests) or `checklist` (pick specific WSTG tests)
 5. Click **Launch Scan**
-6. Watch the progress — phases: Recon → Knowledge Resolution → Scanning → Enrichment → AI Analysis
-7. Go to **Validate Findings** to approve or reject findings
+6. Watch the progress — phases: Recon → Knowledge Resolution → Scanning → Enrichment → AI Analysis → Awaiting Validation
+7. Go to **Review Queue** to confirm, reject, downgrade, or escalate findings
 8. Go to **Generate Report** to export PDF or JSON
 
 ### Via the API
@@ -222,10 +251,19 @@ curl http://localhost:8000/session/abc123/status
 # Get results
 curl http://localhost:8000/session/abc123
 
-# Validate a finding
-curl -X POST http://localhost:8000/validate/abc123 \
+# Get review queue
+curl http://localhost:8000/session/abc123/review/queue
+
+# Submit analyst decisions
+curl -X POST http://localhost:8000/session/abc123/review \
   -H "Content-Type: application/json" \
-  -d '{"finding_id": "FIND-XXXX", "action": "approve", "validator_name": "Kartik"}'
+  -d '{
+    "decisions": [
+      {"finding_id": "FIND-XXXX", "action": "confirm", "analyst": "Kartik"},
+      {"finding_id": "FIND-YYYY", "action": "false_positive", "analyst": "Kartik", "notes": "Internal IP"}
+    ],
+    "analyst": "Kartik"
+  }'
 
 # Download PDF report
 curl "http://localhost:8000/report/abc123/download?format=pdf" -o report.pdf
@@ -261,6 +299,23 @@ curl -X POST http://localhost:8000/scan \
 
 ---
 
+## LLM Provider Configuration
+
+The platform uses LLMs for AI false-positive analysis. Providers are tried in order until one succeeds:
+
+**Fallback chain:** Groq → Gemini → OpenRouter → Ollama
+
+| Provider | Env var | Free tier |
+|----------|---------|-----------|
+| Groq (default) | `GROQ_API_KEY` | Yes — https://console.groq.com |
+| Gemini | `GEMINI_API_KEY` | Yes — https://aistudio.google.com |
+| OpenRouter | `OPENROUTER_API_KEY` | Yes (limited) |
+| Ollama | `OLLAMA_MODEL` | Local, no key needed |
+
+Set `LLM_PROVIDER=none` to disable AI analysis entirely.
+
+---
+
 ## Architecture Overview
 
 ```
@@ -268,20 +323,22 @@ POST /scan
     │
     └── Background Task
           │
-          ├── 1. Recon          DNS · port pre-scan · host classification
+          ├── 1. Recon           DNS · port pre-scan · host classification
           │
           ├── 2. Knowledge Agent  WSTG registry → execution plan (101 tests)
           │
           └── 3. ThreadPoolExecutor (parallel)
                   ├── Network Agent  →  Nmap (or mock)
-                  ├── Web Agent      →  OWASP ZAP (or built-in probes)
+                  ├── Web Agent      →  ZAP + Nuclei concurrent (or built-in probes)
                   └── Cloud Agent    →  Prowler (or mock, if run_cloud=True)
                           │
-                          ├── 4. Enrichment   CVSS v3.1 scoring · deduplication
+                          ├── 4. Enrichment    CVSS v3.1 scoring · deduplication
                           │
-                          ├── 5. AI Analysis  False-positive detection (LLM)
+                          ├── 5. AI Analysis   False-positive detection (LLM)
                           │
-                          └── 6. DB Persist   SQLite / PostgreSQL
+                          ├── 6. Review Queue  Triage → analyst decisions
+                          │
+                          └── 7. DB Persist    SQLite / PostgreSQL
 ```
 
 ---
@@ -306,9 +363,10 @@ Only scan targets you own or have written permission to test.
 | `uvicorn: command not found` | Activate venv: `venv\Scripts\activate` |
 | `ModuleNotFoundError` | `pip install -r requirements.txt` |
 | Streamlit shows "API Offline" | Start FastAPI first on port 8000 |
-| ZAP not detected | Start ZAP daemon on port 8090 with key `changeme` |
+| ZAP not detected (local run) | Start ZAP daemon on port 8090 with key `changeme` |
+| Docker: ZAP healthcheck failing | Wait 60–90s; run `docker compose logs zap` to check |
 | Nmap needs root (Linux) | `sudo uvicorn main:app --reload` or use mock mode |
 | Prowler returns mock findings | Set AWS credentials (`aws configure`) and pass `run_cloud: true` |
-| AI analysis skipped | Set `LLM_PROVIDER` + matching API key, or set `LLM_PROVIDER=none` to disable |
-| Port 8000 in use | `uvicorn main:app --port 8001` and update `API_BASE` in `ui/app.py` |
-| DB errors on startup | Delete `vapt.db` to reset (all scan history will be lost) |
+| AI analysis skipped | Check `LLM_PROVIDER` + matching API key in `.env` |
+| Port conflict | Change port in compose or pass `--port` to uvicorn/streamlit |
+| DB errors on startup | Delete `vapt.db` (local) or `docker compose down -v` (Docker) to reset |
