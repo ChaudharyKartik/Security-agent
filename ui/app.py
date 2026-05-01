@@ -359,22 +359,40 @@ if page == "Scan":
                 prog = st.progress(0)
                 stat = st.empty()
                 
-                for _ in range(200):
+                _STATUS_PCT = {
+                    "recon": 15, "knowledge_resolution": 30,
+                    "scanning": 55, "enrichment": 75,
+                    "ai_analysis": 88, "awaiting_validation": 100,
+                    "completed": 100,
+                }
+                _STATUS_LABEL = {
+                    "recon":                "Reconnaissance",
+                    "knowledge_resolution": "Planning tests",
+                    "scanning":             "Scanning",
+                    "enrichment":           "Enriching findings",
+                    "ai_analysis":          "AI false-positive analysis",
+                    "awaiting_validation":  "Scan complete — awaiting review",
+                    "completed":            "Complete",
+                    "error":                "Error",
+                }
+                _DONE = {"awaiting_validation", "completed", "error"}
+
+                for _ in range(300):
                     time.sleep(2)
                     data = api_get(f"/session/{result['session_id']}/status")
-                    if not data: break
-                    
-                    pct = {"recon": 20, "knowledge_resolution": 30, "scanning": 55, "enrichment": 75, "ai_analysis": 88, "awaiting_validation": 95, "completed": 100}.get(data.get("status"), 50)
-                    prog.progress(pct / 100)
-                    stat.markdown(f"**{data.get('status').upper()}** | {data.get('total_findings', 0)} findings")
-                    
-                    if data.get("status") in ("completed", "error"):
+                    if not data:
                         break
-                
+                    s   = data.get("status", "")
+                    pct = _STATUS_PCT.get(s, 50)
+                    lbl = _STATUS_LABEL.get(s, s.upper())
+                    prog.progress(pct / 100, text=f"{lbl}  ·  {data.get('total_findings', 0)} findings so far")
+                    if s in _DONE:
+                        break
+
                 final = api_get(f"/session/{result['session_id']}/status")
-                if final and final.get("status") == "completed":
+                if final and final.get("status") in ("awaiting_validation", "completed"):
                     st.balloons()
-                    st.success(f"Complete! {final.get('total_findings')} vulnerabilities found")
+                    st.success(f"Scan complete — {final.get('total_findings', 0)} vulnerabilities found. Go to Review to triage.")
                     
                     bd = final.get("summary", {}).get("severity_breakdown", {})
                     c1, c2, c3, c4, c5 = st.columns(5)
