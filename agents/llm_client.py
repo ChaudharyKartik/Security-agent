@@ -32,7 +32,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 
 GROQ_API_KEY       = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL         = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
