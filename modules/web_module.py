@@ -479,9 +479,9 @@ def _try_nuclei_scan(url: str, config) -> list | None:
 
     depth = getattr(config, "scan_depth", "standard") if config else "standard"
     _DEPTH_CFG = {
-        "quick":    {"severity": "critical,high",               "rate": 50,  "timeout": 120},
-        "standard": {"severity": "critical,high,medium",        "rate": 150, "timeout": 300},
-        "deep":     {"severity": "critical,high,medium,low,info","rate": 300, "timeout": 600},
+        "quick":    {"severity": "critical,high,medium",             "rate": 50,  "timeout": 120},
+        "standard": {"severity": "critical,high,medium,low",         "rate": 150, "timeout": 300},
+        "deep":     {"severity": "critical,high,medium,low,info",    "rate": 300, "timeout": 600},
     }
     dcfg = _DEPTH_CFG.get(depth, _DEPTH_CFG["standard"])
 
