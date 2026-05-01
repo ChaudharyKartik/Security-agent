@@ -44,12 +44,16 @@ def run_web_scan(target: str, config=None, checklist_items=None) -> dict:
     zap_base  = (config.zap_api_base if config else None) or "http://localhost:8090"
     zap_key   = (config.zap_api_key  if config else None) or "changeme"
 
-    # Run ZAP and Nuclei concurrently; fall back to built-in probes if both fail.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+    # Run ZAP, Nuclei, and probes concurrently.
+    # Probes always run — they catch header/cookie issues via direct httpx
+    # even when ZAP finds nothing (e.g. failed crawl, SPA, rate-limited).
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
         zap_future    = ex.submit(_try_zap_scan, url, zap_base, zap_key, config)
         nuclei_future = ex.submit(_try_nuclei_scan, url, config)
+        probe_future  = ex.submit(_probe_target, url, auth_hdrs, config)
         zap_result    = zap_future.result()
         nuclei_result = nuclei_future.result()
+        probe_result  = probe_future.result() or []
 
     findings: list = []
     tools:    list = []
@@ -58,20 +62,26 @@ def run_web_scan(target: str, config=None, checklist_items=None) -> dict:
         findings.extend(zap_result)
         tools.append(TOOL_ZAP)
         logger.info(f"[WEB] ZAP: {len(zap_result)} alerts")
+    else:
+        logger.warning("[WEB] ZAP unavailable or failed — no ZAP results")
 
     if nuclei_result is not None:
         findings.extend(nuclei_result)
         tools.append(TOOL_NUCLEI)
         logger.info(f"[WEB] Nuclei: {len(nuclei_result)} findings")
+    else:
+        logger.info("[WEB] Nuclei unavailable or no findings")
+
+    # Always merge probe findings; dedup removes overlaps with ZAP/Nuclei
+    findings.extend(probe_result)
+    logger.info(f"[WEB] Probes: {len(probe_result)} findings")
 
     if not tools:
-        logger.info("[WEB] ZAP + Nuclei unavailable — running built-in HTTP probes")
-        findings = _probe_target(url, auth_hdrs, config)
-        tools    = [TOOL_PROBE]
-    else:
-        before   = len(findings)
-        findings = _dedup_findings(findings)
-        logger.info(f"[WEB] Dedup: {before} → {len(findings)} findings")
+        tools = [TOOL_PROBE]
+
+    before   = len(findings)
+    findings = _dedup_findings(findings)
+    logger.info(f"[WEB] Final: {before} raw → {len(findings)} after dedup | tools: {tools}")
 
     return {
         "module":    "web",
@@ -117,22 +127,32 @@ def _try_zap_scan(url: str, base: str, key: str, config) -> list | None:
                              params={"apikey": key, "url": url,
                                      "maxChildren": dcfg["max_children"]}, timeout=10)
         spider_id = spider_r.json().get("scan", "0")
+        logger.info(f"[ZAP] Spider started — id={spider_id} depth={depth}")
         _zap_wait("spider", base, key, scan_id=spider_id, timeout=dcfg["spider_timeout"])
+
+        try:
+            urls_r   = httpx.get(f"{base}/JSON/spider/view/results/",
+                                 params={"apikey": key, "scanId": spider_id}, timeout=5)
+            url_count = len(urls_r.json().get("results", []))
+            logger.info(f"[ZAP] Spider done — {url_count} URLs found")
+        except Exception:
+            logger.info("[ZAP] Spider done — URL count unavailable")
 
         ascan_r = httpx.get(f"{base}/JSON/ascan/action/scan/",
                             params={"apikey": key, "url": url, "recurse": "true"}, timeout=10)
         ascan_id = ascan_r.json().get("scan", "0")
+        logger.info(f"[ZAP] Active scan started — id={ascan_id}")
         _zap_wait("ascan", base, key, scan_id=ascan_id, timeout=dcfg["ascan_timeout"])
+        logger.info("[ZAP] Active scan done")
 
         # Fetch all alerts then filter by target host in Python.
         # Avoids trailing-slash / redirect mismatches with the ZAP baseurl param.
         alerts_r = httpx.get(f"{base}/JSON/core/view/alerts/",
                              params={"apikey": key, "start": "0", "count": "5000"}, timeout=15)
+        all_alerts  = alerts_r.json().get("alerts", [])
         parsed_host = urlparse(url).netloc
-        alerts = [
-            a for a in alerts_r.json().get("alerts", [])
-            if parsed_host in a.get("url", "")
-        ]
+        alerts = [a for a in all_alerts if parsed_host in a.get("url", "")]
+        logger.info(f"[ZAP] Alerts: {len(all_alerts)} total, {len(alerts)} for {parsed_host}")
 
         # Fetch real HTTP request/response for High/Medium alerts in parallel.
         # Low/Info findings keep raw ZAP fields — fetching all messages for
@@ -162,7 +182,8 @@ def _try_zap_scan(url: str, base: str, key: str, config) -> list | None:
                 pass
 
         return results
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[ZAP] Scan failed: {e}", exc_info=True)
         return None
 
 
