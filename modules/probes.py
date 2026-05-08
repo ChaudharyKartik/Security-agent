@@ -8,8 +8,10 @@ Use run_probes() to dispatch — it runs all applicable probes concurrently.
 """
 import concurrent.futures
 import logging
+import math
 import re
-from urllib.parse import urlparse, urljoin, parse_qs
+import time
+from urllib.parse import urlparse, urljoin, parse_qs, urlencode, urlunparse
 
 import httpx
 
@@ -68,6 +70,20 @@ SECURITY_HEADERS = {
     "cross-origin-opener-policy":   ("COOP Header Missing",            "Info"),
     "cross-origin-resource-policy": ("CORP Header Missing",            "Info"),
 }
+
+
+SQL_ERRORS = re.compile(
+    r"(sql syntax|mysql_fetch|ORA-\d{5}|pg_query|sqlite_|"
+    r"unclosed quotation|quoted string not properly|"
+    r"syntax error.*sql|microsoft.*odbc|jet database engine|"
+    r"warning.*mysql|division by zero|supplied argument is not)",
+    re.I,
+)
+
+SESSION_NAMES = re.compile(
+    r"(sess|session|token|auth|jwt|sid|jsessionid|phpsessid|asp\.net_sessionid|connect\.sid)",
+    re.I,
+)
 
 
 def _fetch(url: str, hdrs: dict, method: str = "GET",
@@ -486,8 +502,6 @@ def probe_execution_paths(url: str, hdrs: dict, config=None) -> list:
                 continue
             full = urljoin(base, href)
             if urlparse(full).netloc == parsed.netloc:
-                # Strip query/fragment for path mapping — keep params separate
-                p = urlparse(full)
                 resolved.add(full)
         return resolved
 
@@ -1242,10 +1256,9 @@ def probe_subdomain_takeover(url: str, hdrs: dict, config=None) -> list:
     HTTP response body.
     """
     try:
-        from urllib.parse import urlparse as _up
         import socket
 
-        parsed   = _up(url)
+        parsed   = urlparse(url)
         hostname = parsed.hostname or ""
         if not hostname:
             return []
@@ -1368,10 +1381,7 @@ def probe_account_enumeration(url: str, hdrs: dict, config=None) -> list:
     and password-reset endpoints. Compares status codes, body content,
     and response timing between valid-looking and invalid usernames.
     """
-    from urllib.parse import urlparse as _up, urljoin
-    import time
-
-    parsed  = _up(url)
+    parsed  = urlparse(url)
     base    = f"{parsed.scheme}://{parsed.netloc}"
     findings = []
 
@@ -1397,7 +1407,6 @@ def probe_account_enumeration(url: str, hdrs: dict, config=None) -> list:
     ]
 
     json_ct  = {"Content-Type": "application/json"}
-    form_ct  = {"Content-Type": "application/x-www-form-urlencoded"}
     combined = {**hdrs, **json_ct}
 
     def _timed_post(endpoint, payload_valid, payload_invalid):
@@ -1628,9 +1637,7 @@ def probe_default_credentials(url: str, hdrs: dict, config=None) -> list:
     """
     WSTG-ATHN-02: Test for default credentials on discovered login endpoints.
     """
-    from urllib.parse import urlparse as _up
-
-    parsed   = _up(url)
+    parsed   = urlparse(url)
     base     = f"{parsed.scheme}://{parsed.netloc}"
     findings = []
 
@@ -1754,8 +1761,7 @@ def probe_remember_password(url: str, hdrs: dict, config=None) -> list:
     LOGIN_PATHS = ["/login", "/signin", "/admin/login", "/wp-login.php",
                    "/auth/login", "/account/login", "/user/login"]
 
-    from urllib.parse import urlparse as _up
-    parsed = _up(url)
+    parsed = urlparse(url)
     base   = f"{parsed.scheme}://{parsed.netloc}"
 
     checked = set()
@@ -1815,10 +1821,7 @@ def probe_password_reset_weakness(url: str, hdrs: dict, config=None) -> list:
     WSTG-ATHN-09: Test password reset mechanism for weaknesses —
     token in response body, no rate limiting, and weak/short tokens.
     """
-    import time
-    from urllib.parse import urlparse as _up
-
-    parsed   = _up(url)
+    parsed   = urlparse(url)
     base     = f"{parsed.scheme}://{parsed.netloc}"
     findings = []
     combined = {**hdrs, "Content-Type": "application/json"}
@@ -1848,14 +1851,13 @@ def probe_password_reset_weakness(url: str, hdrs: dict, config=None) -> list:
         body = r.text
 
         # ── token leaked in response body ─────────────────────────────────────
-        import re as _re
         token_patterns = [
             r'["\']?token["\']?\s*[:=]\s*["\']([A-Za-z0-9_\-\.]{8,})["\']',
             r'["\']?reset_token["\']?\s*[:=]\s*["\']([A-Za-z0-9_\-\.]{8,})["\']',
             r'["\']?code["\']?\s*[:=]\s*["\']([A-Za-z0-9]{6,})["\']',
         ]
         for pat in token_patterns:
-            m = _re.search(pat, body, _re.I)
+            m = re.search(pat, body, re.I)
             if m:
                 token_val = m.group(1)
                 findings.append({
@@ -1887,7 +1889,6 @@ def probe_password_reset_weakness(url: str, hdrs: dict, config=None) -> list:
         except Exception:
             pass
 
-        rate_limited = any(s in (429, 423) for s in statuses)
         all_ok = all(s not in (429, 423, 503) for s in statuses)
 
         if all_ok and len(statuses) >= 3:
@@ -1922,10 +1923,7 @@ def probe_directory_traversal(url: str, hdrs: dict, config=None) -> list:
     Appends traversal sequences to the URL path and common query parameters,
     then checks responses for filesystem file signatures.
     """
-    from urllib.parse import urlparse as _up, urlencode, urljoin
-    import re as _re
-
-    parsed  = _up(url)
+    parsed  = urlparse(url)
     base    = f"{parsed.scheme}://{parsed.netloc}"
     findings = []
 
@@ -1941,8 +1939,8 @@ def probe_directory_traversal(url: str, hdrs: dict, config=None) -> list:
         "..%5c..%5cwindows%5cwin.ini",
     ]
 
-    UNIX_SIG    = _re.compile(r"root:[x*]?:\d+:\d+:")
-    WIN_SIG     = _re.compile(r"\[fonts\]", _re.I)
+    UNIX_SIG    = re.compile(r"root:[x*]?:\d+:\d+:")
+    WIN_SIG     = re.compile(r"\[fonts\]", re.I)
 
     def _is_vuln(text: str) -> bool:
         return bool(UNIX_SIG.search(text) or WIN_SIG.search(text))
@@ -1996,16 +1994,13 @@ def probe_idor(url: str, hdrs: dict, config=None) -> list:
     Looks for numeric / UUID IDs in the URL path or query string,
     then probes adjacent IDs to check if access control is enforced.
     """
-    from urllib.parse import urlparse as _up, parse_qs, urlencode, urlunparse
-    import re as _re
-
-    parsed   = _up(url)
+    parsed   = urlparse(url)
     findings = []
 
     # ── extract IDs from path segments ───────────────────────────────────────
-    NUM_RE  = _re.compile(r"^(\d+)$")
-    UUID_RE = _re.compile(
-        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", _re.I
+    NUM_RE  = re.compile(r"^(\d+)$")
+    UUID_RE = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
     )
 
     path_parts = [p for p in parsed.path.split("/") if p]
@@ -2135,23 +2130,16 @@ def probe_session_management_schema(url: str, hdrs: dict, config=None) -> list:
     Makes two unauthenticated requests, captures any issued session tokens,
     and checks for weak entropy (short length, numeric-only, sequential patterns).
     """
-    import re as _re
-    import math
-
     findings = []
 
     def _extract_tokens(response) -> list:
         """Return all candidate session token values from Set-Cookie headers."""
         tokens = []
-        SESSION_NAMES = _re.compile(
-            r"(sess|session|token|auth|jwt|sid|jsessionid|phpsessid|asp\.net_sessionid|connect\.sid)",
-            _re.I,
-        )
         for hdr, val in response.headers.items():
             if hdr.lower() != "set-cookie":
                 continue
             # parse cookie name=value
-            m = _re.match(r"([^=]+)=([^;]+)", val.strip())
+            m = re.match(r"([^=]+)=([^;]+)", val.strip())
             if not m:
                 continue
             name, value = m.group(1).strip(), m.group(2).strip()
@@ -2161,11 +2149,11 @@ def probe_session_management_schema(url: str, hdrs: dict, config=None) -> list:
 
     def _entropy_bits(token: str) -> float:
         """Estimate bits of entropy: len * log2(charset_size)."""
-        if _re.fullmatch(r"[0-9]+", token):
+        if re.fullmatch(r"[0-9]+", token):
             charset = 10
-        elif _re.fullmatch(r"[0-9a-f]+", token, _re.I):
+        elif re.fullmatch(r"[0-9a-f]+", token, re.I):
             charset = 16
-        elif _re.fullmatch(r"[0-9a-zA-Z]+", token):
+        elif re.fullmatch(r"[0-9a-zA-Z]+", token):
             charset = 62
         else:
             charset = 90
@@ -2207,7 +2195,7 @@ def probe_session_management_schema(url: str, hdrs: dict, config=None) -> list:
             })
 
         # ── numeric-only token ────────────────────────────────────────────────
-        if _re.fullmatch(r"[0-9]+", val1):
+        if re.fullmatch(r"[0-9]+", val1):
             findings.append({
                 "name": "Numeric-Only Session Token",
                 "type": "web_vulnerability", "risk": "High", "url": url,
@@ -2225,7 +2213,7 @@ def probe_session_management_schema(url: str, hdrs: dict, config=None) -> list:
             })
 
         # ── sequential tokens: differ by ≤ 5 between requests ─────────────────
-        if (_re.fullmatch(r"[0-9]+", val1) and _re.fullmatch(r"[0-9]+", val2)):
+        if (re.fullmatch(r"[0-9]+", val1) and re.fullmatch(r"[0-9]+", val2)):
             try:
                 diff = abs(int(val1) - int(val2))
                 if 0 < diff <= 5:
@@ -2251,7 +2239,7 @@ def probe_session_management_schema(url: str, hdrs: dict, config=None) -> list:
                 pass
 
         # ── timestamp-embedded token (unix epoch in first 10 digits) ──────────
-        if len(val1) >= 10 and _re.match(r"1[5-9]\d{8}", val1):
+        if len(val1) >= 10 and re.match(r"1[5-9]\d{8}", val1):
             findings.append({
                 "name": "Timestamp-Based Session Token",
                 "type": "web_vulnerability", "risk": "Medium", "url": url,
@@ -2401,10 +2389,7 @@ def probe_reflected_xss(url: str, hdrs: dict, config=None) -> list:
     Injects a unique canary into URL query parameters and checks if it
     appears unescaped in the HTML response.
     """
-    from urllib.parse import urlparse as _up, parse_qs, urlencode, urlunparse
-    import re as _re
-
-    parsed   = _up(url)
+    parsed   = urlparse(url)
     findings = []
 
     CANARY   = "xss_probe_8472zq"
@@ -2415,7 +2400,7 @@ def probe_reflected_xss(url: str, hdrs: dict, config=None) -> list:
         f"javascript:{CANARY}",
     ]
 
-    REFLECT_RE = _re.compile(_re.escape(CANARY), _re.I)
+    REFLECT_RE = re.compile(re.escape(CANARY), re.I)
 
     def _check_params(target_url, inject_val):
         r = _fetch(target_url, hdrs)
@@ -2482,9 +2467,7 @@ def probe_http_parameter_pollution(url: str, hdrs: dict, config=None) -> list:
     Sends duplicate query parameters and checks whether the server accepts
     an unexpected value, bypassing filters applied to the first occurrence.
     """
-    from urllib.parse import urlparse as _up, parse_qs, urlunparse
-
-    parsed   = _up(url)
+    parsed   = urlparse(url)
     findings = []
 
     qs = parse_qs(parsed.query, keep_blank_values=True)
@@ -2541,24 +2524,12 @@ def probe_sql_injection(url: str, hdrs: dict, config=None) -> list:
     WSTG-INPV-05: Test for SQL Injection.
     Three detection strategies: error-based, boolean-based, and time-based.
     """
-    from urllib.parse import urlparse as _up, parse_qs, urlencode, urlunparse
-    import re as _re
-    import time
-
-    parsed   = _up(url)
+    parsed   = urlparse(url)
     findings = []
 
     qs = parse_qs(parsed.query, keep_blank_values=True)
     if not qs:
         return []
-
-    SQL_ERRORS = _re.compile(
-        r"(sql syntax|mysql_fetch|ORA-\d{5}|pg_query|sqlite_|"
-        r"unclosed quotation|quoted string not properly|"
-        r"syntax error.*sql|microsoft.*odbc|jet database engine|"
-        r"warning.*mysql|division by zero|supplied argument is not)",
-        _re.I,
-    )
 
     def _make_url(param, value):
         new_qs = {**qs, param: [value]}
@@ -2648,11 +2619,10 @@ def probe_http_smuggling(url: str, hdrs: dict, config=None) -> list:
     Sends an ambiguous request and looks for 400/500 errors or unexpected
     responses that indicate the front-end and back-end disagree on body length.
     """
-    from urllib.parse import urlparse as _up
     import socket
     import ssl
 
-    parsed   = _up(url)
+    parsed   = urlparse(url)
     host     = parsed.hostname or ""
     port     = parsed.port or (443 if parsed.scheme == "https" else 80)
     use_ssl  = parsed.scheme == "https"
@@ -2749,10 +2719,7 @@ def probe_ssti(url: str, hdrs: dict, config=None) -> list:
     Injects math expressions used by common template engines and checks
     whether the result is evaluated in the response.
     """
-    from urllib.parse import urlparse as _up, parse_qs, urlencode, urlunparse
-    import re as _re
-
-    parsed   = _up(url)
+    parsed   = urlparse(url)
     findings = []
 
     # Payloads: (inject_string, expected_result_pattern, engine_hint)
@@ -2901,10 +2868,9 @@ def probe_weak_tls(url: str, hdrs: dict, config=None) -> list:
     WSTG-CRYP-01: Test for weak TLS protocols and ciphers.
     Connects via ssl and inspects negotiated protocol version and cipher suite.
     """
-    from urllib.parse import urlparse as _up
     import ssl, socket
 
-    parsed = _up(url)
+    parsed = urlparse(url)
     if parsed.scheme != "https":
         return []
 
@@ -3019,9 +2985,7 @@ def probe_file_upload(url: str, hdrs: dict, config=None) -> list:
     Discovers upload endpoints and attempts to upload a minimal PHP file
     with a spoofed image Content-Type and a double-extension filename.
     """
-    from urllib.parse import urlparse as _up
-
-    parsed   = _up(url)
+    parsed   = urlparse(url)
     base     = f"{parsed.scheme}://{parsed.netloc}"
     findings = []
 
@@ -3137,10 +3101,7 @@ def probe_html_injection(url: str, hdrs: dict, config=None) -> list:
     Injects benign HTML tags into query parameters and checks if they are
     reflected unescaped in the response (distinct from script-based XSS).
     """
-    from urllib.parse import urlparse as _up, parse_qs, urlencode, urlunparse
-    import re as _re
-
-    parsed   = _up(url)
+    parsed   = urlparse(url)
     findings = []
 
     CANARY   = "htmlinj_probe_5821"
@@ -3367,10 +3328,7 @@ def probe_xssi(url: str, hdrs: dict, config=None) -> list:
     Checks JSON/API endpoints for JSONP callbacks, JSON array responses
     (includable via <script>), and missing JSON security prefixes.
     """
-    from urllib.parse import urlparse as _up, urljoin
-    import re as _re
-
-    parsed   = _up(url)
+    parsed   = urlparse(url)
     base     = f"{parsed.scheme}://{parsed.netloc}"
     findings = []
 
@@ -3380,9 +3338,8 @@ def probe_xssi(url: str, hdrs: dict, config=None) -> list:
         "/user.json", "/profile.json", "/account.json",
     ]
 
-    JSONP_CALLBACK_RE = _re.compile(r"^[a-zA-Z_$][a-zA-Z0-9_$]*\(", _re.M)
-    ARRAY_RE          = _re.compile(r"^\s*\[")
-    PREFIX_RE         = _re.compile(r"^\s*(\)\]\}',?|for\s*\(;;|while\s*\(1\)|/\*)")
+    ARRAY_RE          = re.compile(r"^\s*\[")
+    PREFIX_RE         = re.compile(r"^\s*(\)\]\}',?|for\s*\(;;|while\s*\(1\)|/\*)")
 
     def _check_endpoint(endpoint):
         local = []
