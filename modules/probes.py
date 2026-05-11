@@ -219,27 +219,6 @@ def probe_webserver_metafiles(url: str, hdrs: dict, config=None) -> list:
                 },
             })
 
-    # crossdomain.xml / clientaccesspolicy.xml
-    for policy_path in ("/crossdomain.xml", "/clientaccesspolicy.xml"):
-        policy_url = base + policy_path
-        r = _fetch(policy_url, hdrs)
-        if r and r.status_code == 200 and len(r.text) > 10:
-            if "allow-access-from" in r.text.lower():
-                findings.append({
-                    "name": "Permissive Cross-Domain Policy",
-                    "type": "web_vulnerability", "risk": "Medium", "url": policy_url,
-                    "description": (
-                        f"{policy_path} exposes a permissive cross-domain access policy. "
-                        "Flash/Silverlight clients on other domains may read authenticated responses."
-                    ),
-                    "solution": "Restrict allow-access-from to specific trusted origins or remove the file.",
-                    "evidence": {
-                        "type": "crossdomain_policy",
-                        "curl_poc": f'curl -sk "{policy_url}"',
-                        "response_snippet": r.text[:300],
-                    },
-                })
-
     return findings
 
 
@@ -334,11 +313,12 @@ def probe_entry_points(url: str, hdrs: dict, config=None) -> list:
         inputs = []
         for inp in input_pattern.finditer(form_body):
             inp_tag  = inp.group(1)
-            itype    = (attr(inp_tag, "type") or type("", (), {"group": lambda s, n: ""})()).group(1) if attr(inp_tag, "type") else "text"
+            itype_m  = attr(inp_tag, "type")
+            itype    = itype_m.group(1) if itype_m else "text"
             iname    = attr(inp_tag, "name")
             inp_name = iname.group(1) if iname else "(unnamed)"
-            inputs.append({"name": inp_name, "type": itype.lower() if itype else "text"})
-            if itype and itype.lower() == "file":
+            inputs.append({"name": inp_name, "type": itype.lower()})
+            if itype.lower() == "file":
                 has_upload = True
 
         # Flag form posting to plain HTTP
@@ -1019,25 +999,24 @@ def probe_http_methods(url: str, hdrs: dict, config=None) -> list:
     WSTG-CONF-06 / WSTG-INPV-03: Test for dangerous enabled HTTP methods.
     """
     findings = []
-    try:
-        r = httpx.options(url, timeout=5, headers=hdrs)
-        allowed = r.headers.get("allow", "").upper()
-        for method in ["PUT", "DELETE", "TRACE", "CONNECT"]:
-            if method in allowed:
-                risk = "High" if method in ("PUT", "DELETE", "TRACE") else "Low"
-                findings.append({
-                    "name": f"Dangerous HTTP Method: {method}",
-                    "type": "web_vulnerability", "risk": risk, "url": url,
-                    "description": f"HTTP {method} enabled — file manipulation or interception risk.",
-                    "solution": f"Disable {method} unless explicitly required.",
-                    "evidence": {
-                        "type": "dangerous_method",
-                        "curl_poc": f'curl -sk -X OPTIONS "{url}" -I',
-                        "allow_header": allowed,
-                    },
-                })
-    except httpx.RequestError:
-        pass
+    r = _fetch(url, hdrs, method="OPTIONS", follow_redirects=False, timeout=5)
+    if r is None:
+        return findings
+    allowed = r.headers.get("allow", "").upper()
+    for method in ["PUT", "DELETE", "PATCH", "TRACE", "CONNECT"]:
+        if method in allowed:
+            risk = "High" if method in ("PUT", "DELETE", "PATCH", "TRACE") else "Low"
+            findings.append({
+                "name": f"Dangerous HTTP Method: {method}",
+                "type": "web_vulnerability", "risk": risk, "url": url,
+                "description": f"HTTP {method} enabled — file manipulation or interception risk.",
+                "solution": f"Disable {method} unless explicitly required.",
+                "evidence": {
+                    "type": "dangerous_method",
+                    "curl_poc": f'curl -sk -X OPTIONS "{url}" -I',
+                    "allow_header": allowed,
+                },
+            })
     return findings
 
 
@@ -1259,6 +1238,7 @@ def probe_subdomain_takeover(url: str, hdrs: dict, config=None) -> list:
     service fingerprints, and checks for unclaimed-resource indicators in the
     HTTP response body.
     """
+    findings = []
     try:
         import socket
 
@@ -1316,8 +1296,6 @@ def probe_subdomain_takeover(url: str, hdrs: dict, config=None) -> list:
                     break
 
         # ── HTTP body check ───────────────────────────────────────────────────
-        findings = []
-
         if matched_service:
             # Fetch the CNAME destination directly
             cname_url = f"{parsed.scheme}://{cname_target}{parsed.path or '/'}"
@@ -3225,10 +3203,12 @@ def probe_open_redirect(url: str, hdrs: dict, config=None) -> list:
 def probe_cors(url: str, hdrs: dict, config=None) -> list:
     """
     WSTG-CLNT-07: Test Cross-Origin Resource Sharing policy.
-    Checks wildcard origin, reflected arbitrary origin, and credentials with permissive origin.
+    Checks wildcard origin, reflected arbitrary origin, null origin, and
+    credentials with permissive origin.
     """
     evil_origin = "https://cors-probe.evil.com"
     findings = []
+
     r = _fetch(url, {**hdrs, "Origin": evil_origin})
     if r is not None:
         acao = r.headers.get("access-control-allow-origin", "")
@@ -3263,18 +3243,29 @@ def probe_cors(url: str, hdrs: dict, config=None) -> list:
                 },
             })
 
-        if acao and acac.lower() == "true" and acao in ("null", "*"):
+    # Null origin — sent by sandboxed iframes and file:// pages; some servers
+    # reflect it back, allowing any sandboxed page to make credentialed requests.
+    r_null = _fetch(url, {**hdrs, "Origin": "null"})
+    if r_null is not None:
+        acao_null = r_null.headers.get("access-control-allow-origin", "")
+        acac_null = r_null.headers.get("access-control-allow-credentials", "")
+        if acao_null == "null":
+            risk = "High" if acac_null.lower() == "true" else "Medium"
+            desc = "Server accepts Origin: null — sent by sandboxed iframes and data URIs. "
+            if acac_null.lower() == "true":
+                desc += "With Allow-Credentials: true, any sandboxed page can make authenticated cross-origin requests."
             findings.append({
-                "name": "CORS: Credentials with Permissive Origin",
-                "type": "web_vulnerability", "risk": "High", "url": url,
-                "description": "Allow-Credentials: true with null/wildcard origin — CSRF with response access.",
-                "solution": "Never combine Allow-Credentials: true with wildcard or null origin.",
+                "name": "CORS: Null Origin Accepted",
+                "type": "web_vulnerability", "risk": risk, "url": url,
+                "description": desc,
+                "solution": "Remove 'null' from the CORS origin allowlist. Never reflect the null origin.",
                 "evidence": {
-                    "type": "cors_creds",
-                    "curl_poc": f'curl -sk -H "Origin: null" "{url}" -I',
-                    "response_snippet": f"ACAO: {acao}\nACAC: {acac}",
+                    "type": "cors_null_origin",
+                    "curl_poc": f'curl -sk -i -H "Origin: null" "{url}"',
+                    "response_snippet": f"ACAO: {acao_null}\nACAC: {acac_null}",
                 },
             })
+
     return findings
 
 
