@@ -136,9 +136,16 @@ class Orchestrator:
             module_results = self._dispatch_agents(target, recon, plan, session)
 
             # ── Phase 4: Enrichment ────────────────────────────────────────────
-            # Include recon findings in enrichment alongside all agent results
+            # Include recon findings alongside all agent results.
+            # In single mode the analyst requested one specific test — recon
+            # findings (open ports, missing headers) are unrelated noise.
+            # The recon data itself (host_type, open_ports, http_info) was
+            # already used for domain inference above and is not discarded.
             _set("enrichment")
-            all_results = [session["raw_results"]["recon"]] + module_results
+            recon_result = session["raw_results"]["recon"]
+            if scan_mode == "single":
+                recon_result = {**recon_result, "findings": []}
+            all_results = [recon_result] + module_results
             session["enriched_findings"] = enrich_findings(all_results)
             # ── Phase 5: AI False Positive Analysis (Gemma 4) ─────────────────
             # Runs only if Ollama is available; falls back silently if not.

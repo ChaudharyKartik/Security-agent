@@ -25,6 +25,31 @@ TOOL_ZAP      = "OWASP ZAP 2.14"
 TOOL_NUCLEI   = "Nuclei v3"
 TOOL_PROBE    = "Built-in HTTP Probe"
 
+# Maps WSTG checklist IDs to Nuclei tag(s) for focused single/checklist scans.
+# When checklist_ids is provided, only templates matching these tags run —
+# reduces scan time from 10 min to under 60 s in single-vuln mode.
+WSTG_TO_NUCLEI_TAGS: dict[str, str] = {
+    "WSTG-INPV-01": "xss",
+    "WSTG-INPV-02": "xss",
+    "WSTG-INPV-05": "sqli",
+    "WSTG-INPV-06": "ldap",
+    "WSTG-INPV-07": "xxe",
+    "WSTG-INPV-08": "ssti",
+    "WSTG-INPV-12": "rce",
+    "WSTG-INPV-13": "ssrf",
+    "WSTG-INPV-18": "ssti",
+    "WSTG-CONF-04": "exposure",
+    "WSTG-CONF-05": "exposure",
+    "WSTG-CONF-07": "misconfiguration",
+    "WSTG-ATHZ-01": "lfi",
+    "WSTG-ATHZ-04": "idor",
+    "WSTG-ATHN-02": "default-login",
+    "WSTG-CLNT-07": "cors",
+    "WSTG-INFO-04": "graphql",
+    "WSTG-CRYP-01": "ssl",
+    "WSTG-BUSL-08": "fileupload",
+}
+
 
 
 
@@ -45,6 +70,16 @@ def run_web_scan(target: str, config=None, checklist_items=None) -> dict:
             if hasattr(item, "checklist_id")
         ]
 
+    # Derive Nuclei tags from the checklist IDs so focused scans (single /
+    # checklist mode) only run relevant templates instead of the full library.
+    # This cuts Nuclei scan time from ~10 min to under 60 s for single-vuln scans.
+    nuclei_tags = None
+    if checklist_ids:
+        tags = {WSTG_TO_NUCLEI_TAGS[wid] for wid in checklist_ids if wid in WSTG_TO_NUCLEI_TAGS}
+        if tags:
+            nuclei_tags = ",".join(sorted(tags))
+            logger.info(f"[WEB] Nuclei tag filter: {nuclei_tags}")
+
     base_hdrs = {"User-Agent": "Mozilla/5.0 SecurityProbe/1.0"}
     base_hdrs.update(auth_hdrs)
 
@@ -52,7 +87,7 @@ def run_web_scan(target: str, config=None, checklist_items=None) -> dict:
     # Probes always run regardless of ZAP/Nuclei outcome.
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
         zap_future    = ex.submit(_try_zap_scan, url, zap_base, zap_key, config)
-        nuclei_future = ex.submit(_try_nuclei_scan, url, config)
+        nuclei_future = ex.submit(_try_nuclei_scan, url, config, nuclei_tags)
         probe_future  = ex.submit(run_probes, url, base_hdrs, config, checklist_ids)
         zap_result    = zap_future.result()
         nuclei_result = nuclei_future.result()
@@ -471,10 +506,11 @@ def _dedup_findings(findings: list) -> list:
 
 # ── Nuclei ────────────────────────────────────────────────────────────────────
 
-def _try_nuclei_scan(url: str, config) -> list | None:
+def _try_nuclei_scan(url: str, config, tags: str | None = None) -> list | None:
     """
     Run Nuclei CLI against target. Returns findings list or None if unavailable.
     Auth headers are injected via -H flags; depth controls severity filter + rate.
+    tags: comma-separated Nuclei tag filter (e.g. "sqli") — None runs all templates.
     """
     if not shutil.which("nuclei"):
         logger.info("[NUCLEI] nuclei not found in PATH — skipping")
@@ -487,6 +523,11 @@ def _try_nuclei_scan(url: str, config) -> list | None:
         "deep":     {"severity": "critical,high,medium,low,info",    "rate": 300, "timeout": 600},
     }
     dcfg = _DEPTH_CFG.get(depth, _DEPTH_CFG["standard"])
+
+    # Tag-filtered scans are narrow by design — cap timeout at 60 s so a
+    # focused single-vuln scan never blocks the pipeline for minutes.
+    if tags:
+        dcfg = {**dcfg, "timeout": min(dcfg["timeout"], 60)}
 
     auth_hdrs = config.build_auth_headers() if config else {}
 
@@ -503,10 +544,13 @@ def _try_nuclei_scan(url: str, config) -> list | None:
             "-silent",
             "-timeout", "10",
         ]
+        if tags:
+            cmd.extend(["-tags", tags])
         for hdr, val in auth_hdrs.items():
             cmd.extend(["-H", f"{hdr}: {val}"])
 
-        logger.info(f"[NUCLEI] Scanning {url} (depth={depth}, severity={dcfg['severity']})")
+        logger.info(f"[NUCLEI] Scanning {url} (depth={depth}, severity={dcfg['severity']}"
+                    + (f", tags={tags})" if tags else ")"))
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=dcfg["timeout"]
         )
