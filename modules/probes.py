@@ -282,7 +282,6 @@ def probe_entry_points(url: str, hdrs: dict, config=None) -> list:
     findings = []
     body     = resp.text
     parsed   = urlparse(url)
-    origin   = f"{parsed.scheme}://{parsed.netloc}"
 
     # ── Forms ────────────────────────────────────────────────────────────────
     form_pattern = re.compile(
@@ -540,7 +539,8 @@ def probe_execution_paths(url: str, hdrs: dict, config=None) -> list:
     all_pages = sorted(by_category.get("page", set()))
     all_apis  = sorted(by_category.get("api",  set()))
 
-    findings.append({
+    if all_urls:
+        findings.append({
         "name": "Application Path Map",
         "type": "information_disclosure", "risk": "Info", "url": url,
         "description": (
@@ -1135,7 +1135,7 @@ def probe_crossdomain_policy(url: str, hdrs: dict, config=None) -> list:
             })
 
         # Wildcard headers
-        if re.search(r'headers=["\*]', body) or 'headers="*"' in body_lower:
+        if 'headers="*"' in body_lower or "headers='*'" in body:
             findings.append({
                 "name": "crossdomain.xml: All Request Headers Allowed",
                 "type": "web_vulnerability", "risk": "Medium", "url": cdx_url,
@@ -1760,8 +1760,8 @@ def probe_remember_password(url: str, hdrs: dict, config=None) -> list:
 
         for i, (pw_ac, form_ac) in enumerate(
                 zip(parser.password_inputs, parser.forms_with_pass)):
-            # Safe values: "off", "new-password", "current-password" (debated but acceptable)
-            safe = pw_ac in ("off", "new-password") or form_ac == "off"
+            # Safe values: "off", "new-password", "current-password" (correct for existing-password fields)
+            safe = pw_ac in ("off", "new-password", "current-password") or form_ac == "off"
             if not safe:
                 findings.append({
                     "name": "Password Field Missing autocomplete=off",
@@ -1952,9 +1952,10 @@ def probe_directory_traversal(url: str, hdrs: dict, config=None) -> list:
     # ── 2. common query-parameter traversal ───────────────────────────────────
     PARAM_NAMES = ["file", "path", "page", "template", "doc", "filename",
                    "include", "load", "read", "view", "dir", "folder"]
+    _path = parsed.path or "/"
     for param in PARAM_NAMES:
         for seq in TRAVERSAL_SEQS[:4]:  # top 4 are enough per param
-            target = f"{base}/?{param}={seq}"
+            target = f"{parsed.scheme}://{parsed.netloc}{_path}?{param}={seq}"
             r = _fetch(target, hdrs)
             if r and r.status_code == 200 and _is_vuln(r.text):
                 findings.append(_finding(target, seq, r.text))
@@ -2586,7 +2587,7 @@ def probe_sql_injection(url: str, hdrs: dict, config=None) -> list:
 
         # ── time-based ────────────────────────────────────────────────────────
         t_base0  = time.monotonic()
-        _fetch(_make_url(param, original), hdrs)
+        _fetch(_make_url(param, original), hdrs, timeout=20)
         baseline = time.monotonic() - t_base0
         threshold = max(4.5, baseline + 4.0)  # at least 4s above server baseline
 
@@ -2598,7 +2599,7 @@ def probe_sql_injection(url: str, hdrs: dict, config=None) -> list:
         ]
         for payload in TIME_PAYLOADS:
             t0 = time.monotonic()
-            r  = _fetch(_make_url(param, payload), hdrs)
+            r  = _fetch(_make_url(param, payload), hdrs, timeout=20)
             elapsed = time.monotonic() - t0
             if r and elapsed >= threshold:
                 findings.append(_finding(
@@ -2952,17 +2953,27 @@ def probe_weak_tls(url: str, hdrs: dict, config=None) -> list:
             })
 
         # ── expired or self-signed cert ──────────────────────────────────────
-        if not cert:
+        # Use a separate CERT_REQUIRED context — getpeercert() always returns {}
+        # with CERT_NONE (falsy), so cert presence cannot be used here.
+        try:
+            ctx_valid = ssl.create_default_context()
+            with socket.create_connection((host, port), timeout=10) as sock_v:
+                with ctx_valid.wrap_socket(sock_v, server_hostname=host):
+                    pass  # handshake succeeded — cert is valid
+        except ssl.SSLCertVerificationError as cert_err:
             findings.append({
                 "name": "TLS Certificate Validation Failed",
                 "type": "ssl_error", "risk": "High", "url": url,
-                "description": "The server presented an invalid, self-signed, or expired TLS certificate.",
+                "description": f"The server presented an invalid, self-signed, or expired TLS certificate: {cert_err}.",
                 "solution": "Install a valid certificate from a trusted CA. Use Let's Encrypt for free certificates.",
                 "evidence": {
                     "type":     "invalid_cert",
                     "curl_poc": f'curl -v "{url}" 2>&1 | grep -i "certificate"',
+                    "error":    str(cert_err),
                 },
             })
+        except Exception:
+            pass
 
     except ssl.SSLError as e:
         findings.append({
