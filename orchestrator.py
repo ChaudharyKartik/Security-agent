@@ -1,21 +1,19 @@
 """
-Orchestrator Agent — v3 (Knowledge Agent integrated)
+Orchestrator — v4 (AI-driven agents, no Knowledge Agent)
 
-The key upgrade: _decide_modules() is GONE.
-Module selection now comes from the KnowledgeAgent's ExecutionPlan.
-The orchestrator dispatches whatever the checklist says, not what it guesses.
+Agents are LLM-driven and self-direct their testing. The orchestrator's only
+job is to sequence them and collect results. No security logic lives here.
 
-Scan modes supported:
-  full       — all applicable tests for target domain
-  checklist  — only user-selected tests from registry
-  single     — exactly one test
-  owasp      — OWASP/NIST standard coverage (fallback when no checklist)
+Scan modes:
+  full       — all applicable agents for the detected domain
+  owasp      — same as full (OWASP coverage is now the agent's responsibility)
+  checklist  — pass requested_tests as focus hints to agents
+  single     — run the single most relevant agent with the requested test as goal
 """
 import logging
 import concurrent.futures
 from datetime import datetime
 
-from agents.knowledge_agent import KnowledgeAgent, ExecutionPlan, MODE_FULL
 from agents.fp_agent import analyse_findings
 from agents.reviewer_agent import ReviewerAgent
 from agents.recon_agent import ReconAgent
@@ -29,17 +27,16 @@ from database import crud
 logger = logging.getLogger(__name__)
 
 # Singletons — loaded once, shared across all scan sessions
-_knowledge_agent = KnowledgeAgent()
-_reviewer_agent  = ReviewerAgent()
-_recon_agent     = ReconAgent(llm=get_llm())
-_web_agent       = WebAgent(llm=get_llm())
-_network_agent   = NetworkAgent(llm=get_llm())
-_cloud_agent     = CloudAgent(llm=get_llm())
+_reviewer_agent = ReviewerAgent()
+_recon_agent    = ReconAgent(llm=get_llm())
+_web_agent      = WebAgent(llm=get_llm())
+_network_agent  = NetworkAgent(llm=get_llm())
+_cloud_agent    = CloudAgent(llm=get_llm())
 
 
 class Orchestrator:
     """
-    Orchestrates the full scan pipeline.
+    Sequences the scan pipeline. No security logic — agents handle that.
 
     Input:  target, scan_mode, requested_tests, credentials (ScanConfig)
     Output: session dict with enriched_findings, summary, execution_plan
@@ -47,15 +44,14 @@ class Orchestrator:
 
     def __init__(self, config=None):
         self.config = config
-        self.ka     = _knowledge_agent
 
     def run(self, target: str, session_id: str,
-            scan_mode: str = MODE_FULL,
+            scan_mode: str = "full",
             requested_tests: list = None,
             status_callback=None,
-            db=None) -> dict:                       # db: SQLAlchemy Session (optional)
+            db=None) -> dict:
 
-        start = datetime.utcnow()
+        start        = datetime.utcnow()
         auth_summary = self.config.build_auth_summary() if self.config else "Unauthenticated"
         logger.info(f"[ORCHESTRATOR] Session {session_id} | target={target} | "
                     f"mode={scan_mode} | tests={requested_tests} | auth={auth_summary}")
@@ -102,70 +98,45 @@ class Orchestrator:
             session["raw_results"]["recon"] = recon
             session["agents_executed"].append("recon_agent")
 
-            # ── Phase 2: Knowledge Agent resolves the execution plan ────────────
-            _set("knowledge_resolution")
-            domain_hint = self._infer_domain(target, recon)
-            plan: ExecutionPlan = self.ka.resolve(
-                target         = target,
-                mode           = scan_mode,
-                requested_tests= requested_tests,
-                domain_hint    = domain_hint,
-            )
-            session["execution_plan"] = {
-                "scan_mode":      plan.scan_mode,
-                "tests_resolved": len(plan.resolved_tests),
-                "agents":         list(plan.agent_groups.keys()),
-                "fallback_used":  plan.fallback_used,
-                "resolution_log": plan.resolution_log,
-                "tests": [
-                    {
-                        "id":             t.checklist_id,
-                        "canonical_name": t.canonical_name,
-                        "agent":          t.agent,
-                        "domain":         t.domain,
-                        "source":         t.source,
-                        "fallback":       t.fallback,
-                    }
-                    for t in plan.resolved_tests
-                ],
-            }
+            # ── Phase 2: Agent selection (replaces Knowledge Agent) ────────────
+            _set("scanning")
+            domain       = self._infer_domain(target, recon)
+            agent_groups = self._select_agents(domain, scan_mode, requested_tests)
 
-            if not plan.resolved_tests:
-                logger.warning(f"[ORCHESTRATOR] No tests resolved for mode={scan_mode}, "
-                               f"tests={requested_tests}. Falling back to full scan.")
-                plan = self.ka.resolve(target=target, mode=MODE_FULL,
-                                       domain_hint=domain_hint)
+            session["execution_plan"] = {
+                "scan_mode":    scan_mode,
+                "domain":       domain,
+                "agents":       list(agent_groups.keys()),
+                "focus_tests":  requested_tests or [],
+            }
+            logger.info(f"[ORCHESTRATOR] Domain={domain} | agents={list(agent_groups.keys())}")
 
             # ── Phase 3: Parallel agent dispatch ───────────────────────────────
-            _set("scanning")
-            module_results = self._dispatch_agents(target, recon, plan, session)
+            module_results = self._dispatch_agents(target, recon, agent_groups, session)
 
             # ── Phase 4: Enrichment ────────────────────────────────────────────
-            # Include recon findings alongside all agent results.
-            # In single mode the analyst requested one specific test — recon
-            # findings (open ports, missing headers) are unrelated noise.
-            # The recon data itself (host_type, open_ports, http_info) was
-            # already used for domain inference above and is not discarded.
+            # Suppress recon findings in single mode — analyst requested one
+            # specific test; recon noise is irrelevant.
             _set("enrichment")
             recon_result = session["raw_results"]["recon"]
             if scan_mode == "single":
                 recon_result = {**recon_result, "findings": []}
             all_results = [recon_result] + module_results
             session["enriched_findings"] = enrich_findings(all_results)
-            # ── Phase 5: AI False Positive Analysis (Gemma 4) ─────────────────
-            # Runs only if Ollama is available; falls back silently if not.
+
+            # ── Phase 5: AI False Positive Analysis ────────────────────────────
             _set("ai_analysis")
             session["enriched_findings"] = analyse_findings(
                 session["enriched_findings"]
             )
+
             # ── Phase 6: Reviewer Agent — build human review queue ─────────────
             _set("awaiting_validation")
             session["review_queue"] = _reviewer_agent.build_review_queue(
                 session["enriched_findings"]
             )
-            # Rebuild summary after AI re-scoring (confidence scores may change)
-            session["summary"] = self._build_summary(
-                session["enriched_findings"], session, plan)
+
+            session["summary"] = self._build_summary(session["enriched_findings"], session)
 
         except Exception as e:
             logger.error(f"[ORCHESTRATOR] Fatal error: {e}", exc_info=True)
@@ -175,7 +146,6 @@ class Orchestrator:
             end = datetime.utcnow()
             session["end_time"]         = end.isoformat()
             session["duration_seconds"] = round((end - start).total_seconds(), 2)
-            # Finalise DB record with findings and summary
             if db:
                 try:
                     crud.finalise_session(db, session)
@@ -186,59 +156,78 @@ class Orchestrator:
 
         return session
 
+    # ── Agent selection ────────────────────────────────────────────────────────
+
+    def _select_agents(self, domain: str, scan_mode: str,
+                       requested_tests: list) -> dict:
+        """
+        Return {agent_name: hint_list} based on domain and scan mode.
+        Agents receive hints as focus context — they still self-direct.
+        Replaces KnowledgeAgent.resolve() + ExecutionPlan entirely.
+        """
+        hints = requested_tests or []
+
+        if scan_mode == "single":
+            # Run exactly one agent — the most relevant for the domain
+            if domain == "cloud":
+                return {"cloud_agent": hints}
+            if domain == "network":
+                return {"network_agent": hints}
+            return {"web_agent": hints}
+
+        # full / owasp / checklist — run all applicable agents
+        agents = {}
+        if domain == "cloud":
+            agents["cloud_agent"] = hints
+            # Cloud targets may also have a web interface
+            agents["web_agent"]   = hints
+        elif domain == "network":
+            agents["network_agent"] = hints
+        else:
+            # web or unknown — run both web and network
+            agents["web_agent"]     = hints
+            agents["network_agent"] = hints
+
+        # Cloud always opt-in via config flag regardless of domain
+        _run_cloud = bool(self.config and getattr(self.config, "run_cloud", False))
+        if _run_cloud and "cloud_agent" not in agents:
+            agents["cloud_agent"] = hints
+
+        return agents
+
     # ── Agent dispatch ─────────────────────────────────────────────────────────
 
     def _dispatch_agents(self, target: str, recon: dict,
-                         plan: ExecutionPlan, session: dict) -> list:
-        """
-        Dispatch agents in parallel based on the execution plan.
-        Each agent receives:
-          - target
-          - the list of ResolvedTest items assigned to it
-          - ScanConfig credentials
-          - recon data (context)
-        """
-        agent_groups = plan.agent_groups
-        results      = []
-        futures      = {}
+                         agent_groups: dict, session: dict) -> list:
+        results = []
+        futures = {}
 
-        # Build task map — only include agents that have tests assigned.
-        # Lambdas use default argument binding (i=items) to capture the current
-        # value of checklist_items at definition time, avoiding late-binding closure issues.
         task_map = {}
-        if "network_agent" in agent_groups:
-            _items = agent_groups["network_agent"]
-            task_map["network_agent"] = lambda i=_items: _network_agent.run(
-                target, recon, self.config,
-                checklist_items=i
-            )
         if "web_agent" in agent_groups:
             _items = agent_groups["web_agent"]
             task_map["web_agent"] = lambda i=_items: _web_agent.run(
-                target, self.config,
-                checklist_items=i
+                target, self.config, checklist_items=i
             )
-        # Cloud only runs when explicitly requested (cloud infra is env-specific)
-        # run_cloud=True must be set in the scan request — KA plan alone is not enough
-        _run_cloud = bool(self.config and getattr(self.config, "run_cloud", False))
-        if _run_cloud:
-            _items = agent_groups.get("cloud_agent", [])
+        if "network_agent" in agent_groups:
+            _items = agent_groups["network_agent"]
+            task_map["network_agent"] = lambda i=_items: _network_agent.run(
+                target, recon, self.config, checklist_items=i
+            )
+        if "cloud_agent" in agent_groups:
+            _items = agent_groups["cloud_agent"]
             task_map["cloud_agent"] = lambda i=_items: _cloud_agent.run(
-                target, self.config,
-                checklist_items=i
+                target, self.config, checklist_items=i
             )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
             for agent_name, task in task_map.items():
                 future = ex.submit(task)
                 futures[future] = agent_name
-                _n = len(agent_groups.get(agent_name, []))
-                logger.info(f"[ORCHESTRATOR] Dispatched: {agent_name} ({_n} tests)")
+                logger.info(f"[ORCHESTRATOR] Dispatched: {agent_name}")
 
             for future in concurrent.futures.as_completed(futures):
                 agent_name = futures[future]
                 try:
-                    # Cloud scans (Prowler) can take 10-15 min for a full AWS audit
                     _timeout = 1000 if agent_name == "cloud_agent" else 300
                     result = future.result(timeout=_timeout)
                     session["raw_results"][agent_name] = result
@@ -248,7 +237,7 @@ class Orchestrator:
                                 f"{len(result.get('findings', []))} findings | "
                                 f"tool: {result.get('tool_used', '?')}")
                 except concurrent.futures.TimeoutError:
-                    logger.error(f"[ORCHESTRATOR] {agent_name} timed out (300s)")
+                    logger.error(f"[ORCHESTRATOR] {agent_name} timed out")
                 except Exception as e:
                     logger.error(f"[ORCHESTRATOR] {agent_name} failed: {e}",
                                  exc_info=True)
@@ -258,15 +247,12 @@ class Orchestrator:
     # ── Domain inference ───────────────────────────────────────────────────────
 
     def _infer_domain(self, target: str, recon: dict) -> str:
-        """
-        Infer the primary domain for full/OWASP mode scans.
-        The Knowledge Agent uses this to filter which tests to run.
-        """
         host_type  = recon.get("host_type", "unknown")
         open_ports = {p["port"] for p in recon.get("open_ports", [])}
         t          = target.lower()
 
-        CLOUD_KW = ["aws","amazon","azure","gcp","google","cloudfront","s3.","blob.core"]
+        CLOUD_KW  = ["aws", "amazon", "azure", "gcp", "google",
+                     "cloudfront", "s3.", "blob.core"]
         WEB_PORTS = {80, 443, 8080, 8443, 8000, 8888}
 
         if any(kw in t for kw in CLOUD_KW):
@@ -277,45 +263,30 @@ class Orchestrator:
 
     # ── Summary ────────────────────────────────────────────────────────────────
 
-    def _build_summary(self, enriched: list, session: dict,
-                       plan: ExecutionPlan) -> dict:
-        counts = {"Critical":0,"High":0,"Medium":0,"Low":0,"Info":0}
+    def _build_summary(self, enriched: list, session: dict) -> dict:
+        counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
         for f in enriched:
             sev = f.get("severity", "Info")
             counts[sev] = counts.get(sev, 0) + 1
 
-        score = (counts["Critical"]*10 + counts["High"]*7 +
-                 counts["Medium"]*4  + counts["Low"]*1)
+        score = (counts["Critical"] * 10 + counts["High"] * 7 +
+                 counts["Medium"]  *  4 + counts["Low"]  * 1)
 
         tools = {}
         for f in enriched:
             t = f.get("tool_used", "unknown")
             tools[t] = tools.get(t, 0) + 1
 
-        # Map findings back to checklist items
-        checklist_coverage = {}
-        for test in plan.resolved_tests:
-            checklist_coverage[test.canonical_name] = {
-                "id":     test.checklist_id,
-                "source": test.source,
-                "findings": [
-                    f["id"] for f in enriched
-                    if f.get("checklist_id") == test.checklist_id
-                ]
-            }
-
         return {
-            "total_findings":       len(enriched),
-            "severity_breakdown":   counts,
-            "overall_risk_score":   score,
-            "risk_rating":          self._rating(score),
-            "agents_run":           session["agents_executed"],
-            "tool_breakdown":       tools,
-            "scan_mode":            session["scan_mode"],
-            "tests_planned":        len(plan.resolved_tests),
-            "fallback_used":        plan.fallback_used,
-            "checklist_coverage":   checklist_coverage,
-            "scan_duration":        session.get("duration_seconds"),
+            "total_findings":     len(enriched),
+            "severity_breakdown": counts,
+            "overall_risk_score": score,
+            "risk_rating":        self._rating(score),
+            "agents_run":         session["agents_executed"],
+            "tool_breakdown":     tools,
+            "scan_mode":          session["scan_mode"],
+            "domain":             session["execution_plan"].get("domain", "unknown"),
+            "scan_duration":      session.get("duration_seconds"),
         }
 
     @staticmethod
