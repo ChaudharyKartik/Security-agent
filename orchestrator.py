@@ -21,8 +21,8 @@ from agents.reviewer_agent import ReviewerAgent
 from agents.recon_agent import ReconAgent
 from agents.web_agent import WebAgent
 from agents.network_agent import NetworkAgent
+from agents.cloud_agent import CloudAgent
 from agents.llm_client import get_llm
-from modules.cloud_module import run_cloud_scan
 from enrichment import enrich_findings
 from database import crud
 
@@ -34,6 +34,7 @@ _reviewer_agent  = ReviewerAgent()
 _recon_agent     = ReconAgent(llm=get_llm())
 _web_agent       = WebAgent(llm=get_llm())
 _network_agent   = NetworkAgent(llm=get_llm())
+_cloud_agent     = CloudAgent(llm=get_llm())
 
 
 class Orchestrator:
@@ -222,7 +223,7 @@ class Orchestrator:
         _run_cloud = bool(self.config and getattr(self.config, "run_cloud", False))
         if _run_cloud:
             _items = agent_groups.get("cloud_agent", [])
-            task_map["cloud_agent"] = lambda i=_items: run_cloud_scan(
+            task_map["cloud_agent"] = lambda i=_items: _cloud_agent.run(
                 target, self.config,
                 checklist_items=i
             )
