@@ -14,7 +14,6 @@ import logging
 import concurrent.futures
 from datetime import datetime
 
-from agents.fp_agent import analyse_findings
 from agents.reviewer_agent import ReviewerAgent
 from agents.report_agent import ReportAgent
 from agents.recon_agent import ReconAgent
@@ -126,13 +125,7 @@ class Orchestrator:
             all_results = [recon_result] + module_results
             session["enriched_findings"] = enrich_findings(all_results)
 
-            # ── Phase 5: AI False Positive Analysis ────────────────────────────
-            _set("ai_analysis")
-            session["enriched_findings"] = analyse_findings(
-                session["enriched_findings"]
-            )
-
-            # ── Phase 6: Reviewer Agent — build human review queue ─────────────
+            # ── Phase 5: Reviewer Agent — build human review queue ────────────
             _set("awaiting_validation")
             session["review_queue"] = _reviewer_agent.build_review_queue(
                 session["enriched_findings"]

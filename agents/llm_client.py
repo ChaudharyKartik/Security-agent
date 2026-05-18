@@ -2,7 +2,7 @@
 LLM Client — multi-provider interface with automatic fallback chain.
 
 Provider priority (first available wins):
-  LLM_PROVIDER env var → fallback chain: groq → gemini → openrouter → ollama
+  LLM_PROVIDER env var → fallback chain: groq → gemini → ollama
 
 Each provider has its own circuit breaker and availability cache so a failure
 on Groq automatically promotes Gemini without human intervention.
@@ -16,7 +16,7 @@ Stability features:
   - 429 handling: respects Retry-After header before trying next provider
   - Robust JSON parsing: fences, language tags, prose wrappers, truncated output
   - chat_json retries once with stricter prompt on bad parse
-  - Per-provider timeouts: Ollama 120 s, OpenRouter 45 s, cloud APIs 30 s
+  - Per-provider timeouts: Ollama 120 s, cloud APIs 30 s
 """
 import collections
 import json
@@ -37,21 +37,18 @@ logger = logging.getLogger(__name__)
 # ── Configuration ─────────────────────────────────────────────────────────────
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 
-GROQ_API_KEY       = os.getenv("GROQ_API_KEY", "")
-GEMINI_API_KEY     = os.getenv("GEMINI_API_KEY", "")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OLLAMA_BASE        = os.getenv("OLLAMA_BASE", "http://localhost:11434")
+GROQ_API_KEY   = os.getenv("GROQ_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+OLLAMA_BASE    = os.getenv("OLLAMA_BASE", "http://localhost:11434")
 
-GROQ_BASE       = "https://api.groq.com/openai/v1"
-GEMINI_BASE     = "https://generativelanguage.googleapis.com/v1beta/models"
-OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+GROQ_BASE   = "https://api.groq.com/openai/v1"
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 # Per-provider default models — each can be overridden independently
 _PROVIDER_MODELS: dict[str, str] = {
-    "groq":       os.getenv("GROQ_MODEL",       "llama-3.3-70b-versatile"),
-    "gemini":     os.getenv("GEMINI_MODEL",     "gemini-2.0-flash"),
-    "openrouter": os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.2-3b-instruct:free"),
-    "ollama":     os.getenv("OLLAMA_MODEL",     "gemma4:e4b"),
+    "groq":   os.getenv("GROQ_MODEL",   "llama-3.3-70b-versatile"),
+    "gemini": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+    "ollama": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
 }
 # LLM_MODEL overrides all providers if set (legacy behaviour preserved)
 if os.getenv("LLM_MODEL"):
@@ -59,14 +56,13 @@ if os.getenv("LLM_MODEL"):
         _PROVIDER_MODELS[_k] = os.getenv("LLM_MODEL")
 
 # Fallback order — primary comes first via _build_chain()
-_FALLBACK_CHAIN = ["groq", "gemini", "openrouter", "ollama"]
+_FALLBACK_CHAIN = ["groq", "gemini", "ollama"]
 
 # Per-provider timeouts (seconds)
 _TIMEOUTS: dict[str, int] = {
-    "groq":       int(os.getenv("LLM_TIMEOUT", "30")),
-    "gemini":     int(os.getenv("LLM_TIMEOUT", "30")),
-    "openrouter": int(os.getenv("LLM_TIMEOUT", "45")),
-    "ollama":     int(os.getenv("LLM_TIMEOUT", "120")),
+    "groq":   int(os.getenv("LLM_TIMEOUT", "30")),
+    "gemini": int(os.getenv("LLM_TIMEOUT", "30")),
+    "ollama": int(os.getenv("LLM_TIMEOUT", "120")),
 }
 
 _AVAILABILITY_TTL          = 60    # seconds before re-checking availability
@@ -79,10 +75,9 @@ _MAX_RETRY_WAIT            = 30    # cap on retry-after sleep — skip provider 
 # Set conservatively below the free-tier limit so we never hit 429 for RPM.
 # Override via env vars for paid tiers (e.g. GROQ_RPM=500).
 _RPM_LIMITS: dict[str, int] = {
-    "groq":       int(os.getenv("GROQ_RPM",       "25")),   # free: 30 RPM
-    "gemini":     int(os.getenv("GEMINI_RPM",     "12")),   # free: 15 RPM
-    "openrouter": int(os.getenv("OPENROUTER_RPM", "15")),   # varies by model
-    "ollama":     int(os.getenv("OLLAMA_RPM",     "500")),  # local — no real limit
+    "groq":   int(os.getenv("GROQ_RPM",   "25")),   # free: 30 RPM
+    "gemini": int(os.getenv("GEMINI_RPM", "12")),   # free: 15 RPM
+    "ollama": int(os.getenv("OLLAMA_RPM", "500")),  # local — no real limit
 }
 
 
@@ -120,7 +115,7 @@ class LLMClient:
     """
     Provider-agnostic LLM client.
     Tries LLM_PROVIDER first; on failure automatically falls back through
-    groq → gemini → openrouter → ollama (skipping providers without keys).
+    groq → gemini → ollama (skipping providers without keys).
     """
 
     def __init__(self):
@@ -319,10 +314,9 @@ class LLMClient:
 
     def _check_provider(self, provider: str) -> bool:
         try:
-            if provider == "groq":       return self._check_groq()
-            if provider == "gemini":     return self._check_gemini()
-            if provider == "openrouter": return self._check_openrouter()
-            if provider == "ollama":     return self._check_ollama()
+            if provider == "groq":   return self._check_groq()
+            if provider == "gemini": return self._check_gemini()
+            if provider == "ollama": return self._check_ollama()
             return False
         except httpx.ConnectError:
             logger.warning(f"[LLM] {provider} unreachable")
@@ -364,19 +358,6 @@ class LLMClient:
             logger.warning(f"[LLM] Gemini check: HTTP {r.status_code}")
         return ok
 
-    def _check_openrouter(self) -> bool:
-        if not OPENROUTER_API_KEY:
-            logger.debug("[LLM] OPENROUTER_API_KEY not set — skipping OpenRouter")
-            return False
-        r = httpx.get(f"{OPENROUTER_BASE}/models",
-                      headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"}, timeout=8)
-        ok = r.status_code == 200
-        if ok:
-            logger.info(f"[LLM] OpenRouter ready — {_PROVIDER_MODELS['openrouter']}")
-        else:
-            logger.warning(f"[LLM] OpenRouter check: HTTP {r.status_code}")
-        return ok
-
     def _check_ollama(self) -> bool:
         try:
             r = httpx.get(f"{OLLAMA_BASE}/api/tags", timeout=5)
@@ -410,15 +391,6 @@ class LLMClient:
                 return self._chat_gemini(
                     model, system, user, temperature, max_tokens)
 
-            if provider == "openrouter":
-                return self._chat_openai_compat(
-                    OPENROUTER_BASE, OPENROUTER_API_KEY, model,
-                    system, user, temperature, max_tokens,
-                    extra_headers={
-                        "HTTP-Referer": "https://vapt-platform",
-                        "X-Title":      "VAPT Platform",
-                    })
-
             if provider == "ollama":
                 return self._chat_ollama(
                     model, system, user, temperature, max_tokens)
@@ -445,15 +417,6 @@ class LLMClient:
                 return self._chat_openai_compat_tools(
                     GROQ_BASE, GROQ_API_KEY, model,
                     system, messages, tools, temperature, max_tokens)
-
-            if provider == "openrouter":
-                return self._chat_openai_compat_tools(
-                    OPENROUTER_BASE, OPENROUTER_API_KEY, model,
-                    system, messages, tools, temperature, max_tokens,
-                    extra_headers={
-                        "HTTP-Referer": "https://vapt-platform",
-                        "X-Title":      "VAPT Platform",
-                    })
 
             if provider == "gemini":
                 return self._chat_gemini_tools(
@@ -489,7 +452,7 @@ class LLMClient:
             "max_tokens":  max_tokens,
         }
         # Resolve provider name from base URL for timeout lookup
-        pname   = "groq" if "groq" in base else "openrouter"
+        pname   = "groq"
         timeout = _TIMEOUTS.get(pname, 30)
 
         def _attempt() -> str | None:
@@ -581,7 +544,7 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens":  max_tokens,
         }
-        pname   = "groq" if "groq" in base else "openrouter"
+        pname   = "groq"
         timeout = _TIMEOUTS.get(pname, 30)
 
         def _attempt() -> dict | None:
