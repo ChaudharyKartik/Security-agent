@@ -58,11 +58,11 @@ if os.getenv("LLM_MODEL"):
 # Fallback order — primary comes first via _build_chain()
 _FALLBACK_CHAIN = ["groq", "gemini", "ollama"]
 
-# Per-provider timeouts (seconds)
+# Per-provider timeouts (seconds) — each independently overridable via env var
 _TIMEOUTS: dict[str, int] = {
-    "groq":   int(os.getenv("LLM_TIMEOUT", "30")),
-    "gemini": int(os.getenv("LLM_TIMEOUT", "30")),
-    "ollama": int(os.getenv("LLM_TIMEOUT", "120")),
+    "groq":   int(os.getenv("GROQ_TIMEOUT",   "30")),
+    "gemini": int(os.getenv("GEMINI_TIMEOUT", "30")),
+    "ollama": int(os.getenv("OLLAMA_TIMEOUT", "25")),
 }
 
 _AVAILABILITY_TTL          = 60    # seconds before re-checking availability
@@ -161,8 +161,8 @@ class LLMClient:
             try:
                 result = self._try_provider(provider, system, user, temperature, max_tokens)
             except _ProviderRateLimited:
-                logger.info(f"[LLM] {provider} rate-limited — trying next provider")
-                continue   # don't circuit-break; provider is working fine
+                self._rate_limit_backoff(provider)
+                continue
 
             if result:
                 self._reset_fails(provider)
@@ -239,8 +239,8 @@ class LLMClient:
                     provider, system, messages, tools, temperature, max_tokens
                 )
             except _ProviderRateLimited:
-                logger.info(f"[LLM] {provider} rate-limited — trying next provider")
-                continue   # don't circuit-break; provider is working fine
+                self._rate_limit_backoff(provider)
+                continue
 
             if result:
                 self._reset_fails(provider)
@@ -284,6 +284,10 @@ class LLMClient:
         if st["circuit_open_until"] > now:
             return False
 
+        # Rate-limit backoff (quota exhausted — don't retry until window expires)
+        if st.get("rate_limited_until", 0.0) > now:
+            return False
+
         # Re-check if stale
         if st["available"] is None or (now - st["available_at"]) > _AVAILABILITY_TTL:
             st["available"]    = self._check_provider(provider)
@@ -293,8 +297,18 @@ class LLMClient:
 
     def _reset_fails(self, provider: str):
         st = self._get_state(provider)
-        st["consecutive_fails"]  = 0
-        st["circuit_open_until"] = 0.0
+        st["consecutive_fails"]   = 0
+        st["circuit_open_until"]  = 0.0
+        st["rate_limited_until"]  = 0.0
+
+    def _rate_limit_backoff(self, provider: str, duration: int = 300):
+        """Back off a quota-exhausted provider for `duration` seconds (default 5 min)."""
+        st = self._get_state(provider)
+        until = time.time() + duration
+        st["rate_limited_until"] = until
+        st["available"]          = False
+        st["available_at"]       = time.time()
+        logger.warning(f"[LLM] {provider} quota exhausted — backing off for {duration}s")
 
     def _record_failure(self, provider: str, reason: str = ""):
         st = self._get_state(provider)
