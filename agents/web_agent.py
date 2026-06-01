@@ -130,9 +130,12 @@ class WebAgent:
         self.llm   = llm
         self.scope = scope
 
-    def run(self, target: str, config=None, checklist_items=None) -> dict:
+    def run(self, target: str, config=None, checklist_items=None, tool_filter=None) -> dict:
         scope    = self.scope or _host_from_url(target)
         registry = build_registry(http_request, run_nuclei, run_zap, report_finding)
+        if tool_filter:
+            keep     = set(tool_filter) | {"report_finding"}
+            registry = {k: v for k, v in registry.items() if k in keep}
 
         extra_context = ""
         if checklist_items:

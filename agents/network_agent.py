@@ -115,7 +115,7 @@ class NetworkAgent:
         self.scope = scope
 
     def run(self, target: str, recon: dict = None,
-            config=None, checklist_items=None) -> dict:
+            config=None, checklist_items=None, tool_filter=None) -> dict:
 
         registry = build_registry(run_nmap, search_cve, http_request, report_finding)
 

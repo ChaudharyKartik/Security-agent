@@ -50,7 +50,8 @@ class Orchestrator:
             scan_mode: str = "full",
             requested_tests: list = None,
             status_callback=None,
-            db=None) -> dict:
+            db=None,
+            tool_filter: list = None) -> dict:
 
         start        = datetime.utcnow()
         auth_summary = self.config.build_auth_summary() if self.config else "Unauthenticated"
@@ -99,6 +100,12 @@ class Orchestrator:
             session["raw_results"]["recon"] = recon
             session["agents_executed"].append("recon_agent")
 
+            # TEMP: recon_only mode — stop here, let caller run agents separately
+            if scan_mode == "recon_only":
+                _set("recon_complete")
+                session["summary"] = {"info": "Recon complete. POST /scan/{id}/run-agents to continue."}
+                return session
+
             # ── Phase 2: Agent selection (replaces Knowledge Agent) ────────────
             _set("scanning")
             domain       = self._infer_domain(target, recon)
@@ -113,7 +120,7 @@ class Orchestrator:
             logger.info(f"[ORCHESTRATOR] Domain={domain} | agents={list(agent_groups.keys())}")
 
             # ── Phase 3: Parallel agent dispatch ───────────────────────────────
-            module_results = self._dispatch_agents(target, recon, agent_groups, session)
+            module_results = self._dispatch_agents(target, recon, agent_groups, session, tool_filter)
 
             # ── Phase 4: Enrichment ────────────────────────────────────────────
             # Suppress recon findings in single mode — analyst requested one
@@ -196,7 +203,8 @@ class Orchestrator:
     # ── Agent dispatch ─────────────────────────────────────────────────────────
 
     def _dispatch_agents(self, target: str, recon: dict,
-                         agent_groups: dict, session: dict) -> list:
+                         agent_groups: dict, session: dict,
+                         tool_filter: list = None) -> list:
         results = []
         futures = {}
 
@@ -204,17 +212,17 @@ class Orchestrator:
         if "web_agent" in agent_groups:
             _items = agent_groups["web_agent"]
             task_map["web_agent"] = lambda i=_items: _web_agent.run(
-                target, self.config, checklist_items=i
+                target, self.config, checklist_items=i, tool_filter=tool_filter
             )
         if "network_agent" in agent_groups:
             _items = agent_groups["network_agent"]
             task_map["network_agent"] = lambda i=_items: _network_agent.run(
-                target, recon, self.config, checklist_items=i
+                target, recon, self.config, checklist_items=i, tool_filter=tool_filter
             )
         if "cloud_agent" in agent_groups:
             _items = agent_groups["cloud_agent"]
             task_map["cloud_agent"] = lambda i=_items: _cloud_agent.run(
-                target, self.config, checklist_items=i
+                target, self.config, checklist_items=i, tool_filter=tool_filter
             )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
@@ -257,6 +265,8 @@ class Orchestrator:
             return "cloud"
         if host_type == "web_application" or open_ports & WEB_PORTS:
             return "web"
+        if t.startswith(("http://", "https://")):
+            return "web"
         return "network"
 
     # ── Summary ────────────────────────────────────────────────────────────────
@@ -294,3 +304,63 @@ class Orchestrator:
         if score >= 10: return "MEDIUM"
         if score > 0:   return "LOW"
         return "CLEAN"
+
+    # TEMP: two-phase scan — runs phases 2-7 against a pre-existing recon result
+    def run_agents_only(self, session: dict, requested_tests: list = None,
+                        tool_filter: list = None, status_callback=None, db=None) -> dict:
+        target     = session["target"]
+        recon      = session["raw_results"].get("recon", {})
+        session_id = session["session_id"]
+
+        def _set(s):
+            session["status"] = s
+            if status_callback:
+                status_callback(session_id, s)
+            if db:
+                try:
+                    crud.update_session_status(db, session_id, s)
+                except Exception as e:
+                    logger.warning(f"[DB] Status update failed: {e}")
+            logger.info(f"[ORCHESTRATOR] [{session_id}] Status -> {s}")
+
+        try:
+            _set("scanning")
+            domain       = self._infer_domain(target, recon)
+            agent_groups = self._select_agents(domain, "single", requested_tests)
+            session["execution_plan"] = {
+                "scan_mode":   "single",
+                "domain":      domain,
+                "agents":      list(agent_groups.keys()),
+                "focus_tests": requested_tests or [],
+            }
+            logger.info(f"[ORCHESTRATOR] run_agents_only | Domain={domain} | agents={list(agent_groups.keys())}")
+
+            module_results = self._dispatch_agents(target, recon, agent_groups, session, tool_filter)
+
+            _set("enrichment")
+            session["enriched_findings"] = enrich_findings(module_results)
+
+            _set("awaiting_validation")
+            session["review_queue"] = _reviewer_agent.build_review_queue(session["enriched_findings"])
+            session["summary"]      = self._build_summary(session["enriched_findings"], session)
+            session["report_narrative"] = _report_agent.draft(session)
+
+        except Exception as e:
+            logger.error(f"[ORCHESTRATOR] run_agents_only error: {e}", exc_info=True)
+            session["status"] = "error"
+            session["error"]  = str(e)
+        finally:
+            end = datetime.utcnow()
+            session["end_time"]        = end.isoformat()
+            session["duration_seconds"] = round(
+                (end - datetime.fromisoformat(session["start_time"])).total_seconds(), 2
+            )
+            if db:
+                try:
+                    crud.finalise_session(db, session)
+                    if session.get("enriched_findings"):
+                        crud.save_findings(db, session_id, session["enriched_findings"])
+                except Exception as e:
+                    logger.warning(f"[DB] Finalise failed: {e}")
+
+        return session

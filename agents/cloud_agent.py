@@ -98,7 +98,7 @@ class CloudAgent:
         self.llm   = llm
         self.scope = scope
 
-    def run(self, target: str, config=None, checklist_items=None) -> dict:
+    def run(self, target: str, config=None, checklist_items=None, tool_filter=None) -> dict:
         provider = _infer_provider(target, config)
         profile  = getattr(config, "aws_profile", None) if config else None
         region   = getattr(config, "aws_region",  None) if config else None

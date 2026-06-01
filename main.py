@@ -70,6 +70,7 @@ class ScanRequest(BaseModel):
 
     scan_mode:       str            = "full"    # full | checklist | single | owasp
     requested_tests: list[str]      = []
+    tool_filter:     list[str]      = []        # temp: restrict agent to named tools only
 
     # Auth / credential config (all optional)
     auth_type:            Optional[str]  = "none"
@@ -105,7 +106,7 @@ class ScanRequest(BaseModel):
     @field_validator("scan_mode")
     @classmethod
     def valid_mode(cls, v):
-        valid = {"full", "checklist", "single", "owasp"}
+        valid = {"full", "checklist", "single", "owasp", "recon_only"}  # TEMP: recon_only added for flow testing
         if v not in valid:
             raise ValueError(f"scan_mode must be one of: {valid}")
         return v
@@ -141,10 +142,16 @@ class ReviewSubmission(BaseModel):
     analyst:      str = "Security Analyst"
 
 
+# TEMP: model for the two-phase scan /run-agents endpoint
+class RunAgentsRequest(BaseModel):
+    requested_tests: list[str] = []
+    tool_filter:     list[str] = []
+
+
 # ── Background scan task ───────────────────────────────────────────────────────
 
 def _run_scan(session_id: str, target: str, config: ScanConfig,
-              scan_mode: str, requested_tests: list):
+              scan_mode: str, requested_tests: list, tool_filter: list = None):
     """
     Runs in a FastAPI BackgroundTask.
     Opens its own DB session (cannot share the request session across threads).
@@ -164,6 +171,7 @@ def _run_scan(session_id: str, target: str, config: ScanConfig,
             requested_tests = requested_tests,
             status_callback = _cb,
             db              = db,
+            tool_filter     = tool_filter or [],
         )
         sessions[session_id].update(result)
     except Exception as e:
@@ -174,6 +182,34 @@ def _run_scan(session_id: str, target: str, config: ScanConfig,
             crud.update_session_status(db, session_id, "error")
         except Exception:
             pass
+    finally:
+        db.close()
+
+
+# TEMP: background task for two-phase scan — runs agents against saved recon result
+def _run_agents_only(session_id: str, requested_tests: list, tool_filter: list):
+    from database.connection import SessionLocal
+    db = SessionLocal()
+
+    def _cb(sid, status):
+        if sid in sessions:
+            sessions[sid]["status"] = status
+
+    try:
+        session = sessions[session_id]
+        config  = session.get("_config")
+        result  = Orchestrator(config=config).run_agents_only(
+            session         = session,
+            requested_tests = requested_tests,
+            tool_filter     = tool_filter or None,
+            status_callback = _cb,
+            db              = db,
+        )
+        sessions[session_id].update(result)
+    except Exception as e:
+        logger.error(f"[MAIN] run_agents_only {session_id} failed: {e}", exc_info=True)
+        sessions[session_id]["status"] = "error"
+        sessions[session_id]["error"]  = str(e)
     finally:
         db.close()
 
@@ -246,11 +282,12 @@ def start_scan(req: ScanRequest, background_tasks: BackgroundTasks):
         "raw_results":       {},
         "agents_executed":   [],
         "error":             None,
+        "_config":           config,   # TEMP: stored for /run-agents reuse
     }
 
     background_tasks.add_task(
         _run_scan, session_id, req.target, config,
-        req.scan_mode, req.requested_tests
+        req.scan_mode, req.requested_tests, req.tool_filter or None
     )
     logger.info(f"[MAIN] Scan queued: {session_id} | {req.target} | "
                 f"mode={req.scan_mode} | tests={req.requested_tests}")
@@ -261,6 +298,26 @@ def start_scan(req: ScanRequest, background_tasks: BackgroundTasks):
         "requested_tests": req.requested_tests,
         "auth":            config.build_auth_summary(),
         "message":         "Scan started. Poll /session/{id}/status.",
+    }
+
+
+# TEMP: two-phase scan — step 2: run agents against a saved recon result
+@app.post("/scan/{session_id}/run-agents", status_code=202)
+def run_agents(session_id: str, req: RunAgentsRequest,
+               background_tasks: BackgroundTasks):
+    if session_id not in sessions:
+        raise HTTPException(404, f"Session '{session_id}' not found in memory. Run recon first.")
+    status = sessions[session_id].get("status")
+    if status != "recon_complete":
+        raise HTTPException(409, f"Session '{session_id}' must be in 'recon_complete' state (current: '{status}')")
+    background_tasks.add_task(
+        _run_agents_only, session_id, req.requested_tests, req.tool_filter
+    )
+    logger.info(f"[MAIN] run-agents queued: {session_id} | filter={req.tool_filter} | tests={req.requested_tests}")
+    return {
+        "session_id": session_id,
+        "tool_filter": req.tool_filter,
+        "message": "Agent scan started. Poll /session/{id}/status.",
     }
 
 
@@ -353,11 +410,19 @@ def delete_session(session_id: str, db: Session = Depends(get_db)):
     if session_id in sessions:
         del sessions[session_id]
     db_obj = crud.get_session(db, session_id)
-    if db_obj:
+    if not db_obj:
+        return {"message": f"Session {session_id} removed from memory (not in DB)"}
+    try:
         db.delete(db_obj)
         db.commit()
         return {"message": f"Session {session_id} deleted from memory and DB"}
-    return {"message": f"Session {session_id} removed from memory (not in DB)"}
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"[MAIN] Delete session {session_id} failed: {e}")
+        raise HTTPException(status_code=409, detail=(
+            f"Could not delete session {session_id} — the scan may still be running "
+            f"or the database is locked. Try again in a moment. ({type(e).__name__})"
+        ))
 
 
 # ── Validation routes ─────────────────────────────────────────────────────────
