@@ -13,6 +13,7 @@ Usage:
 import inspect
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -59,7 +60,7 @@ class BaseAgent:
         llm,
         tool_registry: dict,
         system_prompt: str,
-        max_iterations: int = 30,
+        max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "5")),
         scope: str = None,
     ):
         self.llm            = llm
@@ -131,6 +132,12 @@ class BaseAgent:
                     "role":    "user",
                     "content": self._serialise_result(observation),
                 })
+
+                # Trim history to prevent context overflow on providers with small windows.
+                # Always keep messages[0] (initial goal) + the last AGENT_HISTORY messages.
+                _keep = int(os.getenv("AGENT_HISTORY", "8"))
+                if len(messages) > _keep + 1:
+                    messages = messages[:1] + messages[-_keep:]
 
                 logger.debug(f"[AGENT] iter={i+1} tool={tool_name} "
                              f"observation_len={len(str(observation))}")
