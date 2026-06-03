@@ -8,6 +8,7 @@ and decides what is worth reporting and at what severity.
 Returns a dict compatible with the orchestrator and enrichment pipeline.
 """
 import logging
+import os
 import re
 from datetime import datetime
 
@@ -19,72 +20,29 @@ from agents.tools.finding_tool import report_finding
 
 logger = logging.getLogger(__name__)
 
-# ── System prompt ──────────────────────────────────────────────────────────────
+# ── System prompt (role + core rules only — sent on every LLM call) ───────────
 
-_SYSTEM_PROMPT = """You are a cloud security assessment agent. Your job is to audit cloud infrastructure for misconfigurations, over-permissive access, and compliance violations.
+_SYSTEM_PROMPT = (
+    "You are a cloud security assessment agent. "
+    "Do not report every Prowler FAIL — evaluate each for real exploitability. "
+    "Prioritise: data exposure > privilege escalation > audit gaps > hygiene. "
+    "Call done when all phases are complete."
+)
 
-INVESTIGATION ORDER — work through each phase in sequence:
+# ── Methodology (sent once in the initial user message, not repeated per call) ─
 
-PHASE 1 — AUTOMATED CLOUD AUDIT
-  run_prowler(provider, profile, region, services=["iam", "s3", "ec2", "rds", "cloudtrail", "kms"])
-  - Start with high-impact services: IAM, S3, EC2, RDS
-  - Review every FAIL finding: is this a real risk or a low-signal compliance checkbox?
-  - Focus on findings that represent actual exploitable misconfigurations
+_METHODOLOGY = """
+PHASES:
+1. AUDIT: run_prowler(provider, profile, region, services=["iam","s3","ec2","rds","cloudtrail","kms"])
+2. EVALUATE each FAIL: exploitable without insider access? Data at risk? Privilege escalation possible? Or compliance-only?
+3. FOLLOW-UP:
+   S3 public: GET https://<bucket>.s3.amazonaws.com/ — 200+listing = Critical
+   SG 0.0.0.0/0 on ports 22/3389/5432/3306 → escalate severity
+   EC2 metadata without IMDSv2 → note it
 
-PHASE 2 — EVALUATE PROWLER FINDINGS
-  For each Prowler FAIL, ask:
-  - Can an attacker exploit this without insider access?
-  - Is data at risk (S3 public, RDS public, secrets exposed)?
-  - Does this allow privilege escalation or lateral movement (IAM issues)?
-  - Is this a compliance flag only (low practical risk)?
-
-  Report only findings that represent real security risk. Skip pure compliance
-  checkbox items with no practical exploitability.
-
-PHASE 3 — TARGETED FOLLOW-UP (for AWS targets)
-  For S3 findings: check if bucket is publicly accessible
-  - http_request("GET", "https://<bucket-name>.s3.amazonaws.com/")
-  - Confirm: 200 response with file listing = Critical
-
-  For exposed metadata service indicators:
-  - If EC2 instance metadata is accessible without IMDSv2, note it
-
-  For exposed management interfaces:
-  - If security groups allow 0.0.0.0/0 on admin ports (22, 3389, 5432, 3306),
-    escalate severity
-
-FINDING TYPES — always include `type` in report_finding():
-  cloud_misconfiguration  — S3 public access, IAM over-permission, exposed RDS, weak KMS
-  auth_misconfiguration   — root account usage, no MFA, over-permissive roles
-  information_disclosure  — publicly accessible storage, exposed secrets
-  missing_security_header — only if a web endpoint is involved
-
-SEVERITY GUIDELINES:
-  Critical: S3 bucket with sensitive data publicly readable, RDS instance publicly
-            accessible with no auth, IAM wildcard permissions (*:*) on production role,
-            hardcoded credentials in Lambda environment variables
-  High:     Root account has no MFA, CloudTrail disabled, S3 bucket public with
-            write access, security group allows all inbound traffic (0.0.0.0/0)
-            on database ports, IAM policy allows privilege escalation
-  Medium:   S3 bucket logging disabled, VPC flow logs disabled, no password policy,
-            MFA not enforced for IAM users, KMS key rotation disabled,
-            CloudWatch alarms not configured
-  Low:      Minor IAM hygiene issues, unused access keys (< 90 days),
-            non-critical compliance gaps
-  Info:     Informational Prowler findings with no direct exploitability
-
-EVIDENCE REQUIREMENTS — every report_finding() must include in evidence:
-  resource    — affected cloud resource (ARN, bucket name, instance ID)
-  region      — cloud region
-  check_id    — Prowler check ID that flagged this
-  observation — what Prowler found (description or risk field)
-  curl_poc    — AWS CLI command or HTTP request that demonstrates the issue
-
-IMPORTANT:
-  - Do NOT report every Prowler FAIL — Prowler is noisy. Be selective.
-  - Prioritise: data exposure > privilege escalation > audit gaps > hygiene
-  - When all phases are complete, call done.
-"""
+FINDING TYPES: cloud_misconfiguration | auth_misconfiguration | information_disclosure | missing_security_header
+SEVERITY: Critical=public_S3_data+public_RDS_no_auth+IAM_wildcard+hardcoded_creds | High=root_no_MFA+CloudTrail_off+S3_public_write+open_DB_SG | Medium=S3_logging_off+no_pw_policy+KMS_rotation_off | Low=minor_IAM_hygiene | Info=no_direct_exploit
+EVIDENCE fields (all required): resource, region, check_id, observation, curl_poc"""
 
 # ── Agent class ────────────────────────────────────────────────────────────────
 
@@ -114,7 +72,7 @@ class CloudAgent:
             llm            = self.llm,
             tool_registry  = registry,
             system_prompt  = _SYSTEM_PROMPT,
-            max_iterations = 40,
+            max_iterations = int(os.getenv("CLOUD_MAX_ITERATIONS", "15")),
             scope          = self.scope or target,
         )
 
@@ -123,8 +81,9 @@ class CloudAgent:
             f"Provider: {provider}"
             + (f" | Profile: {profile}" if profile else "")
             + (f" | Region: {region}"   if region  else "")
-            + extra_context + "\n"
-            + f"Auth: {config.build_auth_summary() if config else 'Unauthenticated'}"
+            + f"\nAuth: {config.build_auth_summary() if config else 'Unauthenticated'}"
+            + extra_context
+            + _METHODOLOGY
         )
 
         start  = datetime.utcnow()

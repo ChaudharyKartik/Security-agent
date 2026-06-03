@@ -62,7 +62,7 @@ _FALLBACK_CHAIN = ["groq", "gemini", "ollama"]
 _TIMEOUTS: dict[str, int] = {
     "groq":   int(os.getenv("GROQ_TIMEOUT",   "30")),
     "gemini": int(os.getenv("GEMINI_TIMEOUT", "30")),
-    "ollama": int(os.getenv("OLLAMA_TIMEOUT", "25")),
+    "ollama": int(os.getenv("OLLAMA_TIMEOUT", "150")),
 }
 
 _AVAILABILITY_TTL          = 60    # seconds before re-checking availability
@@ -216,7 +216,7 @@ class LLMClient:
         messages:    list,
         tools:       list,
         temperature: float = 0.2,
-        max_tokens:  int   = 2048,
+        max_tokens:  int   = 1024,
     ) -> dict:
         """
         Multi-turn chat with tool schemas. Used by BaseAgent's ReAct loop.
@@ -582,11 +582,34 @@ class LLMClient:
     ) -> dict | None:
         url = f"{GEMINI_BASE}/{model}:generateContent?key={GEMINI_API_KEY}"
 
-        # Convert messages to Gemini role format (user/model)
+        # Convert messages to Gemini role format, handling tool_calls format
         contents = []
         for m in messages:
-            role = "model" if m["role"] == "assistant" else "user"
-            contents.append({"role": role, "parts": [{"text": m["content"]}]})
+            if m["role"] == "assistant":
+                if m.get("tool_calls"):
+                    tc = m["tool_calls"][0]
+                    fn = tc["function"]
+                    try:
+                        args = json.loads(fn["arguments"])
+                    except (json.JSONDecodeError, TypeError):
+                        args = fn.get("arguments", {})
+                    parts = []
+                    if m.get("content"):
+                        parts.append({"text": m["content"]})
+                    parts.append({"functionCall": {"name": fn["name"], "args": args}})
+                    contents.append({"role": "model", "parts": parts})
+                else:
+                    contents.append({"role": "model", "parts": [{"text": m.get("content") or ""}]})
+            elif m["role"] == "tool":
+                contents.append({
+                    "role": "user",
+                    "parts": [{"functionResponse": {
+                        "name":     m.get("name", "tool"),
+                        "response": {"result": m.get("content", "")},
+                    }}],
+                })
+            else:
+                contents.append({"role": "user", "parts": [{"text": m.get("content") or ""}]})
 
         payload = {
             "system_instruction": {"parts": [{"text": system}]},
@@ -653,7 +676,7 @@ class LLMClient:
             "model":   model,
             "stream":  False,
             "options": {"temperature": temperature, "num_predict": max_tokens},
-            "messages": [{"role": "system", "content": enhanced_system}] + messages,
+            "messages": [{"role": "system", "content": enhanced_system}] + _normalise_messages_for_prompt(messages),
         }
 
         def _attempt() -> dict | None:
@@ -721,7 +744,12 @@ class LLMClient:
                     if attempt < max_attempts:
                         time.sleep(backoff); backoff *= 2
                 else:
-                    logger.error(f"[LLM] HTTP {e.response.status_code} — not retrying")
+                    body = ""
+                    try:
+                        body = e.response.text[:300]
+                    except Exception:
+                        pass
+                    logger.error(f"[LLM] HTTP {e.response.status_code} — not retrying. Body: {body}")
                     break
 
             except Exception as e:
@@ -770,6 +798,33 @@ class LLMClient:
 
         logger.warning(f"[LLM] Could not parse JSON: {text[:200]!r}")
         return None
+
+
+# ── Message format helpers ────────────────────────────────────────────────────
+
+def _normalise_messages_for_prompt(messages: list) -> list:
+    """
+    Convert OpenAI tool_calls format to plain text for prompt-based tool calling.
+    Used by _chat_prompt_tools where there is no native tool call API.
+    """
+    out = []
+    for m in messages:
+        if m.get("tool_calls"):
+            tc = m["tool_calls"][0]
+            fn = tc["function"]
+            try:
+                args = json.loads(fn["arguments"])
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            out.append({
+                "role":    "assistant",
+                "content": json.dumps({"type": "tool_call", "tool": fn["name"], "args": args}),
+            })
+        elif m["role"] == "tool":
+            out.append({"role": "user", "content": f"Tool result:\n{m.get('content', '')}"})
+        else:
+            out.append(m)
+    return out
 
 
 # ── Tool-response parsers (module-level, no self) ─────────────────────────────

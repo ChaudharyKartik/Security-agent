@@ -254,7 +254,7 @@ class Orchestrator:
 
     def _infer_domain(self, target: str, recon: dict) -> str:
         host_type  = recon.get("host_type", "unknown")
-        open_ports = {p["port"] for p in recon.get("open_ports", [])}
+        open_ports = set(recon.get("open_ports", []))
         t          = target.lower()
 
         CLOUD_KW  = ["aws", "amazon", "azure", "gcp", "google",

@@ -8,6 +8,7 @@ checks for auth weaknesses, and decides what constitutes a real finding.
 Returns a dict compatible with the orchestrator and enrichment pipeline.
 """
 import logging
+import os
 import re
 from datetime import datetime
 
@@ -20,87 +21,34 @@ from agents.tools.finding_tool import report_finding
 
 logger = logging.getLogger(__name__)
 
-# ── System prompt ──────────────────────────────────────────────────────────────
+# ── System prompt (role + core rules only — sent on every LLM call) ───────────
 
-_SYSTEM_PROMPT = """You are a network security assessment agent. Your job is to discover exposed services, identify vulnerable software versions, and find authentication weaknesses on a target host.
+_SYSTEM_PROMPT = (
+    "You are a network security assessment agent. "
+    "Only call report_finding() for confirmed issues — a CVE entry is not a finding "
+    "unless you confirmed the vulnerable version is actually running. "
+    "Call done when all phases are complete."
+)
 
-INVESTIGATION ORDER — work through each phase in sequence:
+# ── Methodology (sent once in the initial user message, not repeated per call) ─
 
-PHASE 1 — PORT AND SERVICE SCAN
-  run_nmap(target, ports="1-65535", flags=["-T4"])
-  - If the target has known open ports from recon context, scan those first with version detection
-  - Review every open port: service name, product, version, CPE
-  - Note any service running an outdated or unusual version
+_METHODOLOGY = """
+PHASES:
+1. PORT SCAN: run_nmap(target, ports="1-65535", flags=["-T4"]) — review service/version/CPE per open port
+2. CVE LOOKUP: search_cve(product, version) for each detected service — report only network-exploitable High/Critical CVEs
+3. HIGH-RISK SERVICE CHECKS:
+   HTTP/HTTPS(80/443/8080/8443): GET / → check default pages; try /manager /phpmyadmin /admin /.env
+   FTP(21):   anonymous access = Critical
+   SSH(22):   check Nmap version for CVEs
+   Telnet(23): open = Medium (unencrypted protocol)
+   DBs(1433/1521/3306/5432/27017/6379): exposed = High; Redis/MongoDB no auth = Critical
+   RDP(3389): exposed = Medium
+   Elasticsearch(9200): GET / and /_cat/indices — unauth = Critical
+   Kubernetes(6443/8001): GET /api/v1/namespaces — unauth = Critical
 
-PHASE 2 — CVE LOOKUP FOR DETECTED VERSIONS
-  For each service where a product AND version was detected by Nmap:
-  - search_cve(product, version)
-  - Evaluate each CVE returned: is it exploitable in this context?
-    Consider: CVSS score, attack vector (network vs local), complexity, whether PoC exists
-  - Report HIGH/CRITICAL CVEs that are network-exploitable as findings
-  - Skip CVEs that require local access or authentication you don't have
-
-PHASE 3 — HIGH-RISK SERVICE CHECKS
-  For these services if found open, perform targeted checks:
-
-  HTTP/HTTPS (80, 443, 8080, 8443):
-  - http_request("GET", "http://target:port/") — check for default pages, admin panels
-  - Try: /manager (Tomcat), /phpmyadmin, /admin, /.env, /config.php
-
-  FTP (21):
-  - Note: anonymous FTP is a critical misconfiguration (test via Nmap script result or http probe)
-
-  SSH (22):
-  - Check Nmap detected version for known CVEs (e.g. OpenSSH < 7.2 username enumeration)
-
-  TELNET (23):
-  - Telnet open = immediate Medium finding (unencrypted protocol)
-
-  SMTP (25):
-  - Check for open relay indicators in Nmap service info
-
-  DATABASE SERVICES (1433 MSSQL, 1521 Oracle, 3306 MySQL, 5432 PostgreSQL, 27017 MongoDB, 6379 Redis):
-  - Exposed database ports are HIGH findings — databases should never be publicly accessible
-  - Redis and MongoDB without auth = Critical
-
-  RDP (3389):
-  - Exposed RDP = Medium finding (brute force / BlueKeep surface)
-
-  ELASTICSEARCH (9200):
-  - http_request("GET", "http://target:9200/") — unauthenticated access = Critical
-  - http_request("GET", "http://target:9200/_cat/indices") — index listing
-
-  KUBERNETES (6443, 8001):
-  - http_request("GET", "https://target:6443/api/v1/namespaces") — unauthenticated = Critical
-
-FINDING TYPES — always include `type` in report_finding():
-  vulnerable_version      — CVE found for detected service version
-  open_port               — risky service exposed to internet (Telnet, RDP, exposed DB)
-  auth_misconfiguration   — unauthenticated access to sensitive service (Redis, ES, MongoDB)
-  information_disclosure  — default page, admin panel, config file exposure
-  web_vulnerability       — web admin panel vulnerability (only if confirmed)
-
-SEVERITY GUIDELINES:
-  Critical: Unauthenticated access to database/cache (Redis, MongoDB, ES), CVE CVSS >= 9.0,
-            exposed Kubernetes API unauthenticated, RCE-class CVE
-  High:     CVE CVSS 7.0-8.9 on network-reachable service, exposed database port,
-            exposed admin panel with default creds
-  Medium:   Telnet open, RDP exposed, CVE CVSS 4.0-6.9, exposed SMTP, FTP open
-  Low:      CVE CVSS < 4.0, informational Nmap findings
-  Info:     Open port with no known vulnerability, up-to-date service version
-
-EVIDENCE REQUIREMENTS — every report_finding() must include in evidence:
-  host        — target IP or hostname
-  port        — port number
-  service     — service name and version detected
-  curl_poc    — Nmap command or curl command that demonstrates the finding
-  cve_id      — CVE identifier (for vulnerable_version findings)
-  observation — what you confirmed (Nmap output excerpt or HTTP response snippet)
-
-CALL report_finding() only for confirmed issues. A CVE in the database is not a finding
-unless you have confirmed the vulnerable version is running. When all phases are complete
-and you have no more checks to run, call done.
-"""
+FINDING TYPES: vulnerable_version | open_port | auth_misconfiguration | information_disclosure
+SEVERITY: Critical=unauth_DB+CVSS≥9+unauth_K8s | High=CVSS7-8.9+exposed_DB+default_creds | Medium=Telnet+RDP+CVSS4-6.9 | Low=CVSS<4 | Info=open_port_no_vuln
+EVIDENCE fields (all required): host, port, service, curl_poc, cve_id, observation"""
 
 # ── Agent class ────────────────────────────────────────────────────────────────
 
@@ -131,15 +79,16 @@ class NetworkAgent:
             llm            = self.llm,
             tool_registry  = registry,
             system_prompt  = _SYSTEM_PROMPT,
-            max_iterations = 50,
+            max_iterations = int(os.getenv("NETWORK_MAX_ITERATIONS", "15")),
             scope          = self.scope or target,
         )
 
         goal = (
             f"Perform network security assessment on: {target}\n"
-            f"Recon context: {recon_summary}"
-            f"{extra_context}\n"
+            f"Recon context: {recon_summary}\n"
             f"Auth: {config.build_auth_summary() if config else 'Unauthenticated'}"
+            f"{extra_context}"
+            f"{_METHODOLOGY}"
         )
 
         start  = datetime.utcnow()
@@ -175,9 +124,7 @@ def _summarise_recon(recon: dict) -> str:
     ports     = recon.get("open_ports", [])
 
     if ports:
-        port_str = ", ".join(
-            f"{p['port']}/{p.get('service', '?')}" for p in ports
-        )
+        port_str = ", ".join(str(p) for p in ports)
     else:
         port_str = "none detected in pre-scan"
 

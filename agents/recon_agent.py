@@ -1,87 +1,51 @@
 """
-ReconAgent — LLM-driven reconnaissance agent.
+ReconAgent — sequential data-gathering agent with single LLM analysis pass.
 
-Replaces modules/recon.py. The LLM decides what DNS records to query,
-what HTTP headers to inspect, and what TLS issues to investigate.
-Python executes each tool call and feeds observations back.
+Replaces the ReAct loop with direct tool execution:
+  1. Python runs all recon tools in a fixed sequence
+  2. Single LLM call analyses all collected results and generates findings
 
-Returns a dict compatible with the orchestrator and enrichment pipeline.
+Tools used:
+  dns_lookup   — A/NS/MX/TXT/CNAME records, email security (SPF/DMARC/DKIM)
+  run_nmap     — port/service discovery, host type determination
+  ssl_check    — TLS cert + weak protocol detection (only if port 443 open)
+  run_nuclei   — tech fingerprinting + misconfig checks (web targets only)
 """
+import json
 import logging
+import re
 from datetime import datetime
 from urllib.parse import urlparse
 
-from agents.base_agent import BaseAgent
-from agents.tool_registry import build_registry
 from agents.tools.dns_tool import dns_lookup
 from agents.tools.ssl_tool import ssl_check
-from agents.tools.http_tool import http_request
-from agents.tools.finding_tool import report_finding
+from agents.tools.nmap_tool import run_nmap
+from agents.tools.nuclei_tool import run_nuclei
 
 logger = logging.getLogger(__name__)
 
-# ── System prompt ──────────────────────────────────────────────────────────────
+_WEB_PORTS           = {80, 443, 8080, 8443, 8000, 8888}
+_MAX_NUCLEI_FINDINGS = 30   # cap before sending to LLM to stay within token budget
 
-_SYSTEM_PROMPT = """You are a security reconnaissance agent. Your job is to investigate a target and identify security weaknesses through careful observation.
+_ANALYSIS_SYSTEM = (
+    "You are a security analyst reviewing reconnaissance data. "
+    "Identify security findings from the results provided.\n\n"
+    "For each finding output a JSON object with:\n"
+    "  name        — short descriptive name\n"
+    "  severity    — one of: Critical, High, Medium, Low, Info\n"
+    "  type        — one of: ssl_error, missing_security_header, "
+    "information_disclosure, web_vulnerability, network_exposure\n"
+    "  evidence    — dict with: url, curl_poc, observation\n"
+    "  remediation — concise fix recommendation\n\n"
+    "Output ONLY a JSON array of finding objects. "
+    "Empty array [] if nothing found. No markdown, no explanation."
+)
 
-INVESTIGATION ORDER — work through each area in sequence:
-
-1. DNS RESOLUTION
-   - dns_lookup(hostname, "A") — resolve IP address
-   - dns_lookup(hostname, "NS") — identify nameservers
-   - dns_lookup(hostname, "MX") — check if mail is handled (enables email security checks)
-   - dns_lookup(hostname, "TXT") — look for SPF, DMARC records
-   - dns_lookup(hostname, "CNAME") — check for dangling CNAME or CDN delegation
-
-2. TLS / SSL INSPECTION
-   - ssl_check(host) — check certificate validity, expiry, SANs, and protocol support
-   - Report if: TLS 1.0 or 1.1 is supported, cert is expired, cert has < 30 days left,
-     cert validation fails, self-signed cert detected
-
-3. HTTP HEADER ANALYSIS
-   - http_request("GET", url) — grab the base response
-   - http_request("GET", url + "/nonexistent") — check error page information disclosure
-   - Check response headers for presence/absence of security controls:
-       strict-transport-security, content-security-policy, x-frame-options,
-       x-content-type-options, referrer-policy, permissions-policy
-   - Check if Server or X-Powered-By headers disclose version strings
-   - Check if HTTP (not HTTPS) is accessible and whether it redirects
-
-4. EMAIL SECURITY (only if MX records were found)
-   - Evaluate TXT records for SPF policy strength (check for ~all vs -all vs missing)
-   - Check for DMARC record at _dmarc.<hostname>: dns_lookup("_dmarc."+hostname, "TXT")
-   - Check for DKIM: dns_lookup("default._domainkey."+hostname, "TXT")
-   - Report missing or permissive policies
-
-FINDING TYPES — always include `type` in your report_finding() call:
-  missing_security_header — HTTP security header absent from response
-  ssl_error               — TLS/cert problem
-  information_disclosure  — server version or internal detail leaked
-  web_vulnerability       — open redirect, CORS misconfiguration, etc.
-
-SEVERITY GUIDELINES:
-  High:   Expired/invalid cert, certificate validation failure
-  Medium: TLS 1.0/1.1 supported, missing HSTS, missing CSP, HTTP accessible without redirect,
-          missing SPF, missing DMARC, DMARC policy is "none"
-  Low:    Missing X-Frame-Options, missing X-Content-Type-Options, missing Referrer-Policy,
-          SPF uses ~all (softfail) instead of -all
-  Info:   Server/technology version disclosure in headers
-
-EVIDENCE REQUIREMENTS — every report_finding() call must include in evidence:
-  url          — the affected URL or endpoint
-  curl_poc     — exact curl command to reproduce
-  observation  — what you saw (relevant headers, cert details, DNS record value)
-
-CALL report_finding() only for confirmed issues — things you actually observed in tool results, not suspicions.
-When you have investigated all four areas above, call done.
-"""
-
-# ── Agent class ────────────────────────────────────────────────────────────────
 
 class ReconAgent:
     """
-    LLM-driven recon agent. Drop-in replacement for modules/recon.run_recon().
-    Returns a dict compatible with orchestrator and enrichment pipeline.
+    Sequential recon agent. Runs tools directly, analyses results in one LLM call.
+    Drop-in replacement for the previous ReAct-based ReconAgent.
     """
 
     def __init__(self, llm, scope: str = None):
@@ -90,148 +54,217 @@ class ReconAgent:
 
     def run(self, target: str, config=None) -> dict:
         hostname, scheme = _parse_target(target)
-        scope            = self.scope or hostname
+        start = datetime.utcnow()
 
-        registry = build_registry(dns_lookup, ssl_check, http_request, report_finding)
-        agent    = BaseAgent(
-            llm            = self.llm,
-            tool_registry  = registry,
-            system_prompt  = _SYSTEM_PROMPT,
-            max_iterations = 40,
-            scope          = scope,
-        )
+        # ── Step 1: DNS records ────────────────────────────────────────────────
+        dns = {
+            "A":     dns_lookup(hostname, "A"),
+            "NS":    dns_lookup(hostname, "NS"),
+            "MX":    dns_lookup(hostname, "MX"),
+            "TXT":   dns_lookup(hostname, "TXT"),
+            "CNAME": dns_lookup(hostname, "CNAME"),
+        }
+        logger.info(f"[RECON] DNS done — IP: {dns['A'].get('records', [None])[0]}")
 
-        goal = (
-            f"Perform security reconnaissance on: {target}\n"
-            f"Hostname: {hostname} | Scheme: {scheme} | "
-            f"Auth: {config.build_auth_summary() if config else 'Unauthenticated'}"
-        )
+        # ── Step 2: Port scan ──────────────────────────────────────────────────
+        nmap       = run_nmap(hostname, ports="1-1000", flags=["-T4"])
+        open_ports = _extract_open_ports(nmap)
+        logger.info(f"[RECON] Nmap done — open ports: {sorted(open_ports)}")
 
-        start  = datetime.utcnow()
-        result = agent.run(goal=goal, context={"target": target, "hostname": hostname})
-        elapsed = (datetime.utcnow() - start).total_seconds()
+        # ── Step 3: TLS inspection (only if 443 reachable) ────────────────────
+        has_tls = 443 in open_ports or scheme == "https"
+        has_web = bool(open_ports & _WEB_PORTS) or scheme in ("http", "https")
 
-        context = _extract_context(target, hostname, scheme, result.log)
+        tls = ssl_check(hostname) if has_tls else None
+        if tls:
+            logger.info(f"[RECON] SSL done — weak: {tls.get('weak_protocols', [])}")
+
+        # ── Step 4: Nuclei tech/ssl/misconfig (web targets only) ──────────────
+        nuclei = None
+        if has_web:
+            nuclei = run_nuclei(target, tags=["tech", "ssl", "misconfig"])
+            count  = nuclei.get("total", 0) if nuclei and not nuclei.get("error") else 0
+            logger.info(f"[RECON] Nuclei done — {count} results")
+
+        # ── Step 5: Email security (only if MX records found) ─────────────────
+        email = None
+        if dns["MX"].get("records"):
+            email = {
+                "dmarc": dns_lookup(f"_dmarc.{hostname}", "TXT"),
+                "dkim":  dns_lookup(f"default._domainkey.{hostname}", "TXT"),
+            }
+            logger.info("[RECON] Email security DNS done")
+
+        # ── Build structured context directly from tool output ─────────────────
+        context = _build_context(hostname, scheme, dns, open_ports, nuclei)
+
+        # ── Single LLM analysis pass ───────────────────────────────────────────
+        findings = _analyse(self.llm, target, hostname, dns, nmap, tls, nuclei, email)
+        elapsed  = round((datetime.utcnow() - start).total_seconds(), 2)
 
         logger.info(
-            f"[RECON_AGENT] Done — {result.iterations} iterations, "
-            f"{result.tool_call_count} tool calls, "
-            f"{len(result.findings)} findings, "
-            f"status={result.status}"
+            f"[RECON] Complete — {len(findings)} findings, "
+            f"{len(open_ports)} open ports, {elapsed}s"
         )
 
         return {
-            "module":             "recon",
-            "target":             target,
-            "hostname":           hostname,
-            "ip_address":         context.get("ip_address"),
-            "scheme":             context.get("scheme", scheme),
-            "host_type":          context.get("host_type", "unknown"),
-            "open_ports":         context.get("open_ports", []),
-            "http_info":          context.get("http_info", {}),
-            "technologies":       context.get("technologies", []),
-            "findings":           _normalise_findings(result.findings, target),
-            "tool_used":          "ai_recon_agent",
-            "auth_used":          config.build_auth_summary() if config else "Unauthenticated",
-            "scan_time":          elapsed,
-            "agent_status":       result.status,
-            "agent_iterations":   result.iterations,
-            "agent_summary":      result.summary,
+            "module":           "recon",
+            "target":           target,
+            "hostname":         hostname,
+            "ip_address":       context["ip_address"],
+            "scheme":           context["scheme"],
+            "host_type":        context["host_type"],
+            "open_ports":       sorted(open_ports),
+            "http_info":        context["http_info"],
+            "technologies":     context["technologies"],
+            "findings":         _normalise_findings(findings, target),
+            "tool_used":        "recon_agent_v2",
+            "auth_used":        config.build_auth_summary() if config else "Unauthenticated",
+            "scan_time":        elapsed,
+            "agent_status":     "complete",
+            "agent_iterations": 1,
+            "agent_summary":    f"{len(findings)} findings identified",
         }
 
 
-# ── Context extraction ─────────────────────────────────────────────────────────
+# ── Context builder ────────────────────────────────────────────────────────────
 
-def _extract_context(target: str, hostname: str, scheme: str, log: list) -> dict:
-    """
-    Parse agent log entries to reconstruct the structured recon context
-    that the orchestrator uses for domain inference and reporting.
-    """
+def _build_context(hostname: str, scheme: str, dns: dict,
+                   open_ports: set, nuclei: dict) -> dict:
+    """Build structured recon context directly from tool output. No log parsing."""
     ctx = {
-        "ip_address":  None,
-        "scheme":      scheme,
-        "host_type":   "unknown",
-        "open_ports":  [],
-        "http_info":   {},
-        "technologies":[],
+        "ip_address":   None,
+        "scheme":       scheme,
+        "host_type":    "unknown",
+        "http_info":    {},
+        "technologies": [],
     }
 
-    http_responded = False
-    web_ports      = {80, 443, 8080, 8443, 8000, 8888}
+    a_records = dns.get("A", {}).get("records", [])
+    if a_records:
+        ctx["ip_address"] = a_records[0]
 
-    for entry in log:
-        tool        = entry.get("tool", "")
-        args        = entry.get("args", {})
-        observation = entry.get("observation", "")
-
-        # Try to parse observation as dict if it's a JSON string
-        obs = _safe_parse(observation)
-
-        if tool == "dns_lookup" and args.get("record_type", "A") == "A":
-            records = obs.get("records", []) if isinstance(obs, dict) else []
-            if records:
-                ctx["ip_address"] = records[0]
-
-        if tool == "http_request" and isinstance(obs, dict) and obs.get("status_code"):
-            http_responded = True
-            status = obs.get("status_code", 0)
-            final_url = obs.get("final_url", target)
-            resp_headers = obs.get("headers", {})
-            ctx["http_info"] = {
-                "status_code":           status,
-                "headers":               resp_headers,
-                "server":                resp_headers.get("server", ""),
-                "https":                 final_url.startswith("https"),
-                "redirect_url":          final_url if final_url != target else None,
-                "raw_response_headers":  "\n".join(f"{k}: {v}" for k, v in resp_headers.items()),
-                "raw_request":           f'curl -sk -i "{target}"',
-            }
-            ctx["scheme"] = "https" if final_url.startswith("https") else "http"
-            ctx["technologies"] = _detect_technologies(resp_headers)
-
-        if tool == "ssl_check" and isinstance(obs, dict) and not obs.get("error"):
-            # Confirm HTTPS port is reachable
-            http_responded = True
-
-    # Host type inference
-    if http_responded:
+    if open_ports & _WEB_PORTS or scheme in ("http", "https"):
         ctx["host_type"] = "web_application"
-    elif ctx["ip_address"]:
+        ctx["scheme"]    = "https" if 443 in open_ports or scheme == "https" else "http"
+    elif open_ports:
         ctx["host_type"] = "network_host"
+
+    if nuclei and not nuclei.get("error"):
+        techs = [
+            f["name"] for f in nuclei.get("findings", [])
+            if "tech" in f.get("tags", [])
+        ]
+        ctx["technologies"] = list(dict.fromkeys(techs))
 
     return ctx
 
 
-def _detect_technologies(headers: dict) -> list:
-    techs   = []
-    headers = {k.lower(): v for k, v in headers.items()}
-    server  = headers.get("server", "").lower()
-    for key, name in [("nginx","Nginx"), ("apache","Apache"), ("iis","Microsoft IIS"),
-                      ("cloudflare","Cloudflare"), ("gunicorn","Gunicorn"),
-                      ("caddy","Caddy"), ("lighttpd","Lighttpd")]:
-        if key in server:
-            techs.append(name)
-    if "x-powered-by" in headers:
-        techs.append(headers["x-powered-by"])
-    if "x-generator" in headers:
-        techs.append(headers["x-generator"])
-    return list(dict.fromkeys(techs))
+# ── LLM analysis ──────────────────────────────────────────────────────────────
+
+def _analyse(llm, target, hostname, dns, nmap, tls, nuclei, email) -> list:
+    """Send all collected recon data to the LLM in a single call."""
+    payload = _build_payload(target, hostname, dns, nmap, tls, nuclei, email)
+    user    = (
+        f"Analyse this reconnaissance data and report all security findings:\n\n"
+        f"{json.dumps(payload, indent=2)}"
+    )
+    response = llm.chat_json(_ANALYSIS_SYSTEM, user, max_tokens=2048)
+    if not response:
+        logger.warning("[RECON] LLM analysis returned no response")
+        return []
+    if isinstance(response, list):
+        return response
+    if isinstance(response, dict):
+        # Handle {"findings": [...]} or unwrap the first list value
+        for v in response.values():
+            if isinstance(v, list):
+                return v
+    return []
+
+
+def _build_payload(target, hostname, dns, nmap, tls, nuclei, email) -> dict:
+    """Compact, LLM-readable summary of all recon results."""
+    payload: dict = {
+        "target":   target,
+        "hostname": hostname,
+        "dns": {
+            rtype: (res.get("records", []) or f"ERROR: {res.get('error')}")
+            for rtype, res in dns.items()
+        },
+    }
+
+    if nmap and not nmap.get("error"):
+        payload["open_ports"] = [
+            {
+                "port":    p["port"],
+                "service": p["service"],
+                "version": p.get("version", ""),
+            }
+            for h in nmap.get("hosts", [])
+            for p in h.get("ports", [])
+        ]
+
+    if tls and not tls.get("error"):
+        cert = tls.get("certificate") or {}
+        payload["tls"] = {
+            "subject":        cert.get("subject", {}).get("commonName"),
+            "expired":        cert.get("expired"),
+            "days_left":      cert.get("days_left"),
+            "weak_protocols": tls.get("weak_protocols", []),
+            "cert_error":     tls.get("cert_error"),
+        }
+
+    if nuclei and not nuclei.get("error"):
+        payload["nuclei"] = [
+            {
+                "name":        f["name"],
+                "severity":    f["severity"],
+                "matched_at":  f["matched_at"],
+                "description": f.get("description", ""),
+            }
+            for f in nuclei.get("findings", [])[:_MAX_NUCLEI_FINDINGS]
+        ]
+
+    if email:
+        payload["email_security"] = {
+            "dmarc": email["dmarc"].get("records") or email["dmarc"].get("error"),
+            "dkim":  email["dkim"].get("records")  or email["dkim"].get("error"),
+            "spf":   dns.get("TXT", {}).get("records", []),
+        }
+
+    return payload
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _extract_open_ports(nmap_result: dict) -> set:
+    if not nmap_result or nmap_result.get("error"):
+        return set()
+    return {
+        p["port"]
+        for h in nmap_result.get("hosts", [])
+        for p in h.get("ports", [])
+    }
+
+
+def _parse_target(target: str) -> tuple:
+    if target.startswith(("http://", "https://")):
+        parsed = urlparse(target)
+        return parsed.hostname or target, parsed.scheme
+    return target, "https"
 
 
 # ── Finding normalisation ──────────────────────────────────────────────────────
 
 def _normalise_findings(findings: list, target: str) -> list:
-    """
-    Convert report_finding() output format to the format enrichment.py expects.
-
-    report_finding uses:  severity, remediation, cwe_id, references
-    enrichment expects:   risk,     solution,    cwe,    cve
-    """
+    """Convert LLM output to the format enrichment.py expects."""
     normalised = []
     for f in findings:
+        if not isinstance(f, dict):
+            continue
         finding = dict(f)
 
-        # Field renames
         if "remediation" in finding:
             finding["solution"] = finding.pop("remediation")
         if "severity" in finding:
@@ -239,22 +272,18 @@ def _normalise_findings(findings: list, target: str) -> list:
         if "cwe_id" in finding:
             finding["cwe"] = finding.pop("cwe_id")
 
-        # Extract CVE from references if present
         refs = finding.pop("references", []) or []
         for ref in refs:
             if "CVE-" in ref.upper():
-                import re
                 m = re.search(r"CVE-\d{4}-\d+", ref, re.IGNORECASE)
                 if m:
                     finding["cve"] = m.group().upper()
                     break
 
-        # Ensure url is set — pull from evidence if not provided
         if not finding.get("url"):
             evidence = finding.get("evidence") or {}
             finding["url"] = evidence.get("url") or target
 
-        # Default type if LLM omitted it
         if not finding.get("type"):
             finding["type"] = _infer_type(finding.get("name", ""))
 
@@ -263,37 +292,13 @@ def _normalise_findings(findings: list, target: str) -> list:
 
 
 def _infer_type(name: str) -> str:
-    name_lower = name.lower()
-    if any(k in name_lower for k in ("header", "csp", "hsts", "frame", "sniff", "referrer")):
+    n = name.lower()
+    if any(k in n for k in ("header", "csp", "hsts", "frame", "sniff", "referrer")):
         return "missing_security_header"
-    if any(k in name_lower for k in ("tls", "ssl", "cert", "https", "cipher")):
+    if any(k in n for k in ("tls", "ssl", "cert", "https", "cipher")):
         return "ssl_error"
-    if any(k in name_lower for k in ("version", "banner", "disclosure", "leak", "expose")):
+    if any(k in n for k in ("version", "banner", "disclosure", "leak", "expose")):
         return "information_disclosure"
-    if any(k in name_lower for k in ("spf", "dmarc", "dkim", "email")):
+    if any(k in n for k in ("spf", "dmarc", "dkim", "email")):
         return "missing_security_header"
     return "web_vulnerability"
-
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
-def _parse_target(target: str) -> tuple:
-    if target.startswith("http://") or target.startswith("https://"):
-        parsed = urlparse(target)
-        return parsed.hostname or target, parsed.scheme
-    return target, "https"
-
-
-def _safe_parse(value) -> dict:
-    """Try to parse a value as a dict — return {} on failure."""
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str):
-        import json
-        try:
-            parsed = json.loads(value)
-            if isinstance(parsed, dict):
-                return parsed
-        except (json.JSONDecodeError, ValueError):
-            pass
-    return {}

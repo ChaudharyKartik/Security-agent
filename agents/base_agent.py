@@ -123,21 +123,36 @@ class BaseAgent:
                 log_entry["observation"] = _truncate(observation)
                 result.log.append(log_entry)
 
-                # Append assistant turn + observation to message history
+                # Append assistant turn + observation in OpenAI tool_calls format.
+                # Storing as plain JSON text in "content" causes Groq's model to
+                # learn the wrong call format and generate <function=...> syntax.
+                call_id = f"call_{result.tool_call_count}"
                 messages.append({
-                    "role":    "assistant",
-                    "content": json.dumps(response),
+                    "role":       "assistant",
+                    "content":    thinking or None,
+                    "tool_calls": [{
+                        "id":   call_id,
+                        "type": "function",
+                        "function": {
+                            "name":      tool_name,
+                            "arguments": json.dumps(tool_args),
+                        },
+                    }],
                 })
                 messages.append({
-                    "role":    "user",
-                    "content": self._serialise_result(observation),
+                    "role":         "tool",
+                    "tool_call_id": call_id,
+                    "name":         tool_name,
+                    "content":      self._serialise_result(observation),
                 })
 
                 # Trim history to prevent context overflow on providers with small windows.
-                # Always keep messages[0] (initial goal) + the last AGENT_HISTORY messages.
+                # Keep messages[0] (initial goal + methodology) + a state summary + last _keep messages.
+                # The summary preserves accumulated findings and tool call history across the trim boundary.
                 _keep = int(os.getenv("AGENT_HISTORY", "8"))
                 if len(messages) > _keep + 1:
-                    messages = messages[:1] + messages[-_keep:]
+                    summary = self._build_trim_summary(result)
+                    messages = messages[:1] + [summary] + messages[-_keep:]
 
                 logger.debug(f"[AGENT] iter={i+1} tool={tool_name} "
                              f"observation_len={len(str(observation))}")
@@ -226,6 +241,46 @@ class BaseAgent:
         if context:
             body += f"\n\nContext:\n{json.dumps(context, indent=2)}"
         return {"role": "user", "content": body}
+
+    def _build_trim_summary(self, result: AgentResult) -> dict:
+        """
+        Synthetic user message injected between messages[0] and the kept history window
+        when trimming occurs. Gives the LLM its accumulated state so it doesn't
+        re-investigate already-checked items or re-report already-captured findings.
+        """
+        lines = ["[Earlier history trimmed — state summary]"]
+
+        if result.findings:
+            lines.append("Findings captured so far:")
+            for f in result.findings:
+                lines.append(f"  [{f.get('severity', '?')}] {f.get('name', 'unnamed')}")
+        else:
+            lines.append("No findings captured yet.")
+
+        seen   = set()
+        called = []
+        for entry in result.log:
+            tool = entry.get("tool")
+            if not tool or tool == REPORT_FINDING_TOOL:
+                continue
+            args = entry.get("args", {})
+            if tool == "http_request":
+                label = f"http_request {args.get('method', 'GET')} {args.get('url', '')[:80]}"
+            elif tool == "dns_lookup":
+                label = f"dns_lookup {args.get('hostname', '')} {args.get('record_type', 'A')}"
+            else:
+                first = str(next(iter(args.values()), ""))[:60] if args else ""
+                label = f"{tool}({first})" if first else tool
+            if label not in seen:
+                seen.add(label)
+                called.append(label)
+
+        if called:
+            lines.append("Tools already called (do not repeat these):")
+            lines.extend(f"  {c}" for c in called)
+
+        lines.append("Continue from where you left off.")
+        return {"role": "user", "content": "\n".join(lines)}
 
     @staticmethod
     def _serialise_result(result: Any) -> str:

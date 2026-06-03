@@ -8,6 +8,7 @@ confirms findings. Python executes tool calls and enforces scope.
 Returns a dict compatible with the orchestrator and enrichment pipeline.
 """
 import logging
+import os
 import re
 from datetime import datetime
 from urllib.parse import urlparse
@@ -21,102 +22,38 @@ from agents.tools.finding_tool import report_finding
 
 logger = logging.getLogger(__name__)
 
-# ── System prompt ──────────────────────────────────────────────────────────────
+# ── System prompt (role + core rules only — sent on every LLM call) ───────────
 
-_SYSTEM_PROMPT = """You are a web application penetration tester. Your job is to find real, confirmed vulnerabilities in a web application using a methodical approach.
+_SYSTEM_PROMPT = (
+    "You are a web application penetration tester. "
+    "Only call report_finding() when you have confirmed evidence in a tool response — "
+    "never on suspicion alone. Do not report missing security headers (recon handles those). "
+    "One finding per unique vulnerability instance. Call done when all testing is complete."
+)
 
-TESTING METHODOLOGY — work through each phase in order:
+# ── Methodology (sent once in the initial user message, not repeated per call) ─
 
-PHASE 1 — FINGERPRINT THE APPLICATION
-  http_request("GET", target_url)
-  - Note: technology stack, framework hints, authentication mechanism, interesting paths
-  - Note: forms, input fields, URL parameters visible in the response
-  http_request("GET", target_url + "/nonexistent-path-xyz")
-  - Check for: verbose error messages, stack traces, internal paths, framework versions
+_METHODOLOGY = """
+TESTING PHASES:
+1. FINGERPRINT: GET target → note stack/inputs/auth; GET target/nonexistent → check error disclosure
+2. TEMPLATE SCAN: run_nuclei(target, tags=["cve","misconfig","exposed-panels","default-login","takeover"]) → confirm each result before reporting
+3. PASSIVE SCAN: run_zap(target,"spider") → run_zap(target,"passive") → confirm ZAP alerts before reporting
+4. MANUAL TESTING (based on observations from phases 1-3):
+   XSS:              inject <script>alert(1)</script> into visible params — confirm unencoded reflection
+   SQLi:             inject ' OR '1'='1 and 1' AND SLEEP(3)-- — confirm error/boolean diff/time delay
+   Command inject:   ;id |whoami in server-side params
+   Path traversal:   /../../../etc/passwd in file path params
+   IDOR:             try adjacent numeric IDs if seen in URLs
+   Forced browsing:  /admin /dashboard /config /backup /.git/config
+   Default creds:    admin/admin admin/password (login forms only)
+   CSRF:             check POST forms for CSRF token presence and validation
+   SSRF:             http://169.254.169.254/latest/meta-data/ in URL params
+   CORS:             Origin: https://evil.com → check Access-Control-Allow-Origin
+   Open redirect:    ?next= ?url= ?redirect= → https://evil.com — confirm 3xx to external domain
 
-PHASE 2 — AUTOMATED TEMPLATE SCAN
-  run_nuclei(target, tags=["cve", "misconfig", "exposed-panels", "default-login", "takeover"])
-  - Evaluate each result: is this a real finding or a false positive?
-  - For each confirmed Nuclei finding: call report_finding()
-
-PHASE 3 — PASSIVE SCAN (traffic observation, no attack payloads)
-  run_zap(target, scan_type="spider") then run_zap(target, scan_type="passive")
-  - Review ZAP alerts: confirm which are real, dismiss false positives
-  - For each confirmed ZAP alert: call report_finding()
-
-PHASE 4 — TARGETED MANUAL TESTING
-  Use http_request to test specific vulnerabilities based on what you observed in phases 1-3.
-  Test these OWASP Top 10 categories that apply to what you found:
-
-  INJECTION (A03)
-  - XSS: inject <script>alert(1)</script> and simpler probes into visible input params
-    Confirm: probe is reflected unencoded in response body
-  - SQLi: inject ' OR '1'='1 and 1' AND SLEEP(3)-- into input params
-    Confirm: error message, boolean difference, or time delay
-  - Command injection: inject ;id and |whoami into params processed server-side
-
-  BROKEN ACCESS CONTROL (A01)
-  - Path traversal: try /../../../etc/passwd in file path params
-  - IDOR: if you see numeric IDs in URLs (e.g. /user/123), try adjacent IDs
-  - Forced browsing: try /admin, /dashboard, /config, /backup, /.git/config
-
-  AUTH FAILURES (A07)
-  - If a login form exists: test admin/admin, admin/password, root/root
-  - Check if brute-force lockout exists (3-5 attempts)
-  - Check if password field has autocomplete="off" or current-password
-
-  SECURITY MISCONFIGURATION (A05)
-  - Try: /robots.txt, /sitemap.xml, /.well-known/, /server-status, /phpinfo.php
-  - Check if directory listing is enabled on common paths
-  - Check if debug endpoints are exposed: /debug, /actuator, /health, /metrics
-
-  CSRF (if forms found)
-  - Check if POST forms include a CSRF token
-  - Check if token is validated (not just present)
-
-  SSRF (if URL/path inputs found)
-  - Try: http://169.254.169.254/latest/meta-data/ in URL parameters
-  - Try: http://localhost:80 and http://127.0.0.1
-
-  CORS MISCONFIGURATION
-  - http_request("GET", url, headers={"Origin": "https://evil.com"})
-  - Confirm: Access-Control-Allow-Origin: https://evil.com or * with credentials
-
-  OPEN REDIRECT
-  - Try common redirect params: ?next=, ?url=, ?redirect=, ?return=
-  - Payload: https://evil.com — confirm 3xx redirect to the external domain
-
-FINDING TYPES — always include `type` in report_finding():
-  web_vulnerability       — XSS, SQLi, SSRF, command injection, open redirect, CSRF
-  auth_misconfiguration   — default creds, missing lockout, session issues
-  missing_security_header — security headers (CSP, HSTS etc — only if not already in recon)
-  information_disclosure  — stack traces, version strings, debug endpoints
-  insecure_cookie         — missing HttpOnly, Secure, SameSite flags
-
-SEVERITY GUIDELINES:
-  Critical: SQLi with data extraction confirmed, RCE confirmed, auth bypass
-  High:     Stored XSS, SSRF reaching internal services, IDOR with data access,
-            exposed admin panel with default creds, path traversal reading files
-  Medium:   Reflected XSS, CSRF on sensitive actions, open redirect, CORS misconfiguration,
-            missing CSRF token, exposed debug endpoints, directory listing
-  Low:      Self-XSS, open redirect (low impact), verbose error pages (no sensitive data)
-  Info:     Version disclosure, robots.txt revealing paths
-
-EVIDENCE REQUIREMENTS — every report_finding() must include in evidence:
-  url          — affected URL
-  method       — HTTP method used
-  request      — full request (method, path, headers, body)
-  response     — relevant response snippet (status code + key lines)
-  curl_poc     — exact curl command that reproduces the finding
-  parameter    — name of the vulnerable parameter (for injection/redirect/IDOR)
-
-CRITICAL RULES:
-  - Only call report_finding() when you have CONFIRMED evidence in a tool response
-  - Do NOT report based on the absence of a header (recon agent handles headers)
-  - Do NOT report theoretical issues — test and confirm
-  - One report_finding() call per unique vulnerability instance
-  - When all four phases are complete and you have no more targeted tests to run, call done
-"""
+FINDING TYPES: web_vulnerability | auth_misconfiguration | missing_security_header | information_disclosure | insecure_cookie
+SEVERITY: Critical=SQLi+RCE+auth_bypass | High=StoredXSS+SSRF+IDOR+default_creds | Medium=ReflectedXSS+CSRF+open_redirect+CORS | Low=self_XSS+verbose_errors | Info=version_disclosure
+EVIDENCE fields (all required): url, method, request, response, curl_poc, parameter"""
 
 # ── Agent class ────────────────────────────────────────────────────────────────
 
@@ -146,14 +83,15 @@ class WebAgent:
             llm            = self.llm,
             tool_registry  = registry,
             system_prompt  = _SYSTEM_PROMPT,
-            max_iterations = 60,
+            max_iterations = int(os.getenv("WEB_MAX_ITERATIONS", "20")),
             scope          = scope,
         )
 
         goal = (
-            f"Perform web application security testing on: {target}"
-            f"{extra_context}\n"
+            f"Perform web application security testing on: {target}\n"
             f"Auth: {config.build_auth_summary() if config else 'Unauthenticated'}"
+            f"{extra_context}"
+            f"{_METHODOLOGY}"
         )
 
         start  = datetime.utcnow()
