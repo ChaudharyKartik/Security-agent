@@ -28,10 +28,16 @@ _VALID_SCAN_TYPES = {"spider", "passive", "active"}
 
 def run_zap(
     target:    str,
-    scan_type: str          = "passive",
-    context:   Optional[str]= None,
+    scan_type: str           = "passive",
+    context:   Optional[str] = None,
+    **kwargs,
 ) -> dict:
     """Run a ZAP spider/passive/active scan and return structured alerts."""
+    # Accept any scan-type alias Ollama might invent (scan, spider, mode, type, ...)
+    for _key in ("scan", "spider", "mode", "type", "scan_mode"):
+        if _key in kwargs:
+            scan_type = kwargs[_key]
+            break
     scan_type = scan_type.lower()
     if scan_type not in _VALID_SCAN_TYPES:
         return {

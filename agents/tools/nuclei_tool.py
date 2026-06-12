@@ -33,7 +33,15 @@ def run_nuclei(
     cmd = ["nuclei", "-target", target, "-json", "-silent"]
 
     if tags:
-        cmd += ["-tags", ",".join(tags)]
+        # Ollama sometimes passes tags as a string repr of a list e.g. "['cve','misconfig']"
+        if isinstance(tags, str):
+            import ast
+            try:
+                tags = ast.literal_eval(tags)
+            except Exception:
+                tags = [t.strip().strip("'\"") for t in tags.strip("[]").split(",") if t.strip()]
+        if tags:
+            cmd += ["-tags", ",".join(str(t) for t in tags)]
     if templates:
         cmd += ["-t", ",".join(templates)]
     if severity:

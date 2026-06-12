@@ -205,6 +205,9 @@ class BaseAgent:
         if missing:
             return {"status": "rejected", "reason": f"Missing required fields: {missing}"}
 
+        if not args.get("name", "").strip():
+            return {"status": "rejected", "reason": "Finding 'name' must not be empty"}
+
         valid_severities = {"Critical", "High", "Medium", "Low", "Info"}
         if args.get("severity") not in valid_severities:
             return {

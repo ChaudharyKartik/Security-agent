@@ -30,6 +30,16 @@ def http_request(
     """Make an HTTP request and return status, headers, and body."""
     method = method.upper()
 
+    # Coerce headers to dict — Ollama sometimes passes a string repr
+    if isinstance(headers, str):
+        import ast
+        try:
+            headers = ast.literal_eval(headers)
+        except Exception:
+            headers = {}
+    if not isinstance(headers, dict):
+        headers = {}
+
     # ── Validation ─────────────────────────────────────────────────────────────
     if method not in _ALLOWED_METHODS:
         return {"error": f"Method '{method}' not allowed. Use: {_ALLOWED_METHODS}"}

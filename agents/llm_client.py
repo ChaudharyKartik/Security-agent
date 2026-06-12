@@ -62,7 +62,7 @@ _FALLBACK_CHAIN = ["groq", "gemini", "ollama"]
 _TIMEOUTS: dict[str, int] = {
     "groq":   int(os.getenv("GROQ_TIMEOUT",   "30")),
     "gemini": int(os.getenv("GEMINI_TIMEOUT", "30")),
-    "ollama": int(os.getenv("OLLAMA_TIMEOUT", "150")),
+    "ollama": int(os.getenv("OLLAMA_TIMEOUT", "180")),
 }
 
 _AVAILABILITY_TTL          = 60    # seconds before re-checking availability
