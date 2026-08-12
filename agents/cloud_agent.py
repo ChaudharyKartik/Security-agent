@@ -56,7 +56,8 @@ class CloudAgent:
         self.llm   = llm
         self.scope = scope
 
-    def run(self, target: str, config=None, checklist_items=None, tool_filter=None) -> dict:
+    def run(self, target: str, config=None, checklist_items=None, tool_filter=None,
+            session_id: str = None) -> dict:
         provider = _infer_provider(target, config)
         profile  = getattr(config, "aws_profile", None) if config else None
         region   = getattr(config, "aws_region",  None) if config else None
@@ -74,6 +75,8 @@ class CloudAgent:
             system_prompt  = _SYSTEM_PROMPT,
             max_iterations = int(os.getenv("CLOUD_MAX_ITERATIONS", "15")),
             scope          = self.scope or target,
+            session_id     = session_id,
+            agent_name     = "cloud",
         )
 
         goal = (

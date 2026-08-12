@@ -67,7 +67,8 @@ class WebAgent:
         self.llm   = llm
         self.scope = scope
 
-    def run(self, target: str, config=None, checklist_items=None, tool_filter=None) -> dict:
+    def run(self, target: str, config=None, checklist_items=None, tool_filter=None,
+            session_id: str = None) -> dict:
         scope    = self.scope or _host_from_url(target)
         registry = build_registry(http_request, run_nuclei, run_zap, report_finding)
         if tool_filter:
@@ -85,6 +86,8 @@ class WebAgent:
             system_prompt  = _SYSTEM_PROMPT,
             max_iterations = int(os.getenv("WEB_MAX_ITERATIONS", "20")),
             scope          = scope,
+            session_id     = session_id,
+            agent_name     = "web",
         )
 
         goal = (

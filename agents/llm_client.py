@@ -1,19 +1,30 @@
 """
-LLM Client — multi-provider interface with automatic fallback chain.
+LLM Client — multi-provider, multi-key interface with automatic fallback chain.
 
 Provider priority (first available wins):
   LLM_PROVIDER env var → fallback chain: groq → gemini → ollama
 
-Each provider has its own circuit breaker and availability cache so a failure
-on Groq automatically promotes Gemini without human intervention.
+Each provider can have multiple API keys (GROQ_API_KEY_1, GROQ_API_KEY_2, ...,
+falling back to a single GROQ_API_KEY if no numbered ones are set). Keys within
+a provider are tried round-robin; a provider is only considered exhausted once
+every one of its keys is circuit-open, rate-limit-backed-off, or at its RPM cap.
+
+Two-tier fallback:
+  Tier 1 (same provider, next key)  — cheap, same model, no compression.
+  Tier 2 (provider exhausted)       — falls to the next provider in the chain.
+                                       If the caller passed on_switch, it is
+                                       invoked to compress `messages` in place
+                                       before the next provider is tried.
 
 Stability features:
-  - Per-provider rate limiter: sliding-window RPM cap prevents 429s proactively
-  - Per-provider circuit breaker: 3 hard failures → 5 min cooldown, then retry
-  - 429 distinction: rate-limited providers are skipped without circuit-breaking
+  - Per-key rate limiter: sliding-window RPM cap prevents 429s proactively
+  - Per-key circuit breaker: 3 hard failures → 5 min cooldown, then retry
+  - Auth failures (401/403) open the circuit immediately — a bad key will
+    never succeed on retry, so there's no reason to wait for 3 strikes
+  - 429 distinction: rate-limited keys are skipped without circuit-breaking
   - Per-provider availability TTL: re-checks every 60 s, recovers automatically
   - Retry with exponential backoff: ConnectError, Timeout, 5xx all retried
-  - 429 handling: respects Retry-After header before trying next provider
+  - 429 handling: respects Retry-After header before trying the next key
   - Robust JSON parsing: fences, language tags, prose wrappers, truncated output
   - chat_json retries once with stricter prompt on bad parse
   - Per-provider timeouts: Ollama 120 s, cloud APIs 30 s
@@ -37,17 +48,44 @@ logger = logging.getLogger(__name__)
 # ── Configuration ─────────────────────────────────────────────────────────────
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 
-GROQ_API_KEY   = os.getenv("GROQ_API_KEY", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-OLLAMA_BASE    = os.getenv("OLLAMA_BASE", "http://localhost:11434")
+OLLAMA_BASE = os.getenv("OLLAMA_BASE", "http://localhost:11434")
 
 GROQ_BASE   = "https://api.groq.com/openai/v1"
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
+
+def _load_keys(prefix: str) -> list[str]:
+    """
+    Collect all numbered keys for a provider: PREFIX_1, PREFIX_2, ...
+    Falls back to the bare PREFIX var (single-key setups) if no numbered ones exist.
+    """
+    keys = []
+    i = 1
+    while True:
+        v = os.getenv(f"{prefix}_{i}")
+        if not v:
+            break
+        keys.append(v)
+        i += 1
+    if not keys:
+        bare = os.getenv(prefix)
+        if bare:
+            keys.append(bare)
+    return keys
+
+
+# Per-provider key pools. Ollama needs no auth — a single sentinel key keeps
+# the (provider, key) bookkeeping uniform across all three providers.
+_PROVIDER_KEYS: dict[str, list[str]] = {
+    "groq":   _load_keys("GROQ_API_KEY"),
+    "gemini": _load_keys("GEMINI_API_KEY"),
+    "ollama": ["local"],
+}
+
 # Per-provider default models — each can be overridden independently
 _PROVIDER_MODELS: dict[str, str] = {
     "groq":   os.getenv("GROQ_MODEL",   "llama-3.3-70b-versatile"),
-    "gemini": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+    "gemini": os.getenv("GEMINI_MODEL", "gemini-flash-latest"),
     "ollama": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
 }
 # LLM_MODEL overrides all providers if set (legacy behaviour preserved)
@@ -65,18 +103,19 @@ _TIMEOUTS: dict[str, int] = {
     "ollama": int(os.getenv("OLLAMA_TIMEOUT", "180")),
 }
 
-_AVAILABILITY_TTL          = 60    # seconds before re-checking availability
+_AVAILABILITY_TTL          = 60    # seconds before re-checking provider reachability
 _CIRCUIT_BREAKER_THRESHOLD = 3     # consecutive failures before circuit opens
 _CIRCUIT_BREAKER_COOLDOWN  = 300   # seconds before circuit closes and retries
-_MAX_RETRIES               = 3     # attempts per provider per call
-_MAX_RETRY_WAIT            = 30    # cap on retry-after sleep — skip provider if quota exhausted
+_MAX_RETRIES               = 3     # attempts per key per call
+_MAX_RETRY_WAIT            = 30    # cap on retry-after sleep — skip key if quota exhausted
+_AGENT_HISTORY_KEEP        = int(os.getenv("AGENT_HISTORY", "8"))  # must match base_agent.py
 
-# Per-provider RPM caps (requests per minute).
+# Per-provider RPM caps (requests per minute) — applied to EACH key independently.
 # Set conservatively below the free-tier limit so we never hit 429 for RPM.
 # Override via env vars for paid tiers (e.g. GROQ_RPM=500).
 _RPM_LIMITS: dict[str, int] = {
-    "groq":   int(os.getenv("GROQ_RPM",   "25")),   # free: 30 RPM
-    "gemini": int(os.getenv("GEMINI_RPM", "12")),   # free: 15 RPM
+    "groq":   int(os.getenv("GROQ_RPM",   "25")),   # free: 30 RPM per key
+    "gemini": int(os.getenv("GEMINI_RPM", "12")),   # free: 15 RPM per key
     "ollama": int(os.getenv("OLLAMA_RPM", "500")),  # local — no real limit
 }
 
@@ -84,7 +123,8 @@ _RPM_LIMITS: dict[str, int] = {
 class _RateLimiter:
     """
     Sliding-window rate limiter.  Thread-safe — safe for parallel agents.
-    Blocks the caller until a request slot is available within the window.
+    acquire() blocks the caller until a request slot is available within the window.
+    has_capacity() is a non-blocking peek used by key selection.
     """
 
     def __init__(self, max_calls: int, window_seconds: float = 60.0):
@@ -93,13 +133,22 @@ class _RateLimiter:
         self._calls    = collections.deque()
         self._lock     = threading.Lock()
 
+    def _expire(self, now: float):
+        while self._calls and now - self._calls[0] > self.window:
+            self._calls.popleft()
+
+    def has_capacity(self) -> bool:
+        """Non-blocking check — is there room for one more call right now?"""
+        with self._lock:
+            now = time.monotonic()
+            self._expire(now)
+            return len(self._calls) < self.max_calls
+
     def acquire(self):
         while True:
             with self._lock:
                 now = time.monotonic()
-                # Expire calls outside the window
-                while self._calls and now - self._calls[0] > self.window:
-                    self._calls.popleft()
+                self._expire(now)
 
                 if len(self._calls) < self.max_calls:
                     self._calls.append(now)
@@ -113,26 +162,46 @@ class _RateLimiter:
 
 class LLMClient:
     """
-    Provider-agnostic LLM client.
+    Provider-agnostic, multi-key LLM client.
     Tries LLM_PROVIDER first; on failure automatically falls back through
-    groq → gemini → ollama (skipping providers without keys).
+    groq → gemini → ollama (skipping providers without keys), rotating
+    through each provider's keys round-robin before moving to the next provider.
     """
 
     def __init__(self):
-        self.provider = LLM_PROVIDER   # primary / preferred provider
-        self.model    = _PROVIDER_MODELS.get(self.provider, "unknown")
+        self.provider      = LLM_PROVIDER   # primary / preferred provider
+        self.model         = _PROVIDER_MODELS.get(self.provider, "unknown")
+        self._provider_keys = _PROVIDER_KEYS
 
-        # Per-provider state: availability cache + circuit breaker
-        self._state: dict[str, dict] = {}
+        # Per-(provider, key) state: circuit breaker + rate-limit backoff
+        self._state: dict[tuple, dict] = {}
 
-        # Per-provider rate limiters — shared across all threads / agents
-        self._rate_limiters: dict[str, _RateLimiter] = {
-            p: _RateLimiter(rpm) for p, rpm in _RPM_LIMITS.items()
+        # Per-(provider, key) rate limiters — shared across all threads / agents
+        self._rate_limiters: dict[tuple, _RateLimiter] = {
+            (provider, key): _RateLimiter(_RPM_LIMITS.get(provider, 10))
+            for provider, keys in self._provider_keys.items()
+            for key in keys
         }
+
+        # Round-robin cursor per provider, protected by a lock (multiple
+        # agents can request a key concurrently — web/network/cloud run
+        # in parallel threads).
+        self._next_key_index: dict[str, int] = {}
+        self._key_index_lock = threading.Lock()
+
+        # Per-provider reachability cache (separate from per-key state —
+        # this is just "can we talk to this provider at all").
+        self._reachability: dict[str, dict] = {}
+
+        # Which (provider, key) served the most recent successful call.
+        # Key is identified by its position, never the raw secret — this is
+        # read by callers (e.g. BaseAgent) for logging/persistence.
+        self.last_provider_key: str | None = None
 
         logger.info(
             f"[LLM] Primary: {self.provider} ({self.model}) | "
-            f"Chain: {self._build_chain()}"
+            f"Chain: {self._build_chain()} | "
+            f"Keys: { {p: len(k) for p, k in self._provider_keys.items()} }"
         )
 
     # ── Public API ─────────────────────────────────────────────────────────────
@@ -147,30 +216,41 @@ class LLMClient:
              temperature: float = 0.2,
              max_tokens: int = 512) -> str | None:
         """
-        Send a chat request. Tries providers in chain order until one succeeds.
-        Returns the text response, or None if all providers fail.
+        Send a chat request. Tries providers in chain order until one succeeds,
+        rotating through each provider's keys before falling to the next provider.
+        Returns the text response, or None if all providers/keys fail.
         """
         if self.provider == "none":
             return None
 
         for provider in self._build_chain():
             if not self._provider_available(provider):
-                logger.debug(f"[LLM] Skipping {provider} (unavailable/circuit open)")
+                logger.debug(f"[LLM] Skipping {provider} (unreachable/not configured)")
                 continue
 
+            key = self.get_available_key(provider)
+            if key is None:
+                logger.info(f"[LLM] {provider} — every key circuit-open/rate-limited, falling back")
+                continue
+
+            pk = (provider, key)
             try:
-                result = self._try_provider(provider, system, user, temperature, max_tokens)
+                result = self._try_provider(provider, key, system, user, temperature, max_tokens)
+            except _AuthError as e:
+                self._record_failure(pk, f"auth failure (HTTP {e.status_code})", immediate=True)
+                continue
             except _ProviderRateLimited:
-                self._rate_limit_backoff(provider)
+                self._rate_limit_backoff(pk)
                 continue
 
             if result:
-                self._reset_fails(provider)
+                self._reset_fails(pk)
+                self.last_provider_key = self._label_key(provider, key)
                 if provider != self.provider:
                     logger.info(f"[LLM] Fallback succeeded via {provider}")
                 return result
 
-            self._record_failure(provider, "returned None after retries")
+            self._record_failure(pk, "returned None after retries")
 
         logger.error("[LLM] All providers in chain exhausted — no response")
         return None
@@ -217,9 +297,17 @@ class LLMClient:
         tools:       list,
         temperature: float = 0.2,
         max_tokens:  int   = 1024,
+        on_switch:   Callable = None,
     ) -> dict:
         """
         Multi-turn chat with tool schemas. Used by BaseAgent's ReAct loop.
+
+        `on_switch`, if given, is called with no arguments right before falling
+        back to the next provider (i.e. when the current provider's keys are
+        all exhausted). It must return a synthetic summary message (same shape
+        as base_agent._build_trim_summary's output); `messages` is then
+        compacted in place — [messages[0], summary] + last _AGENT_HISTORY_KEEP —
+        so the new provider picks up a short history instead of the full one.
 
         Returns one of:
           {"type": "tool_call", "tool": "name", "args": {...}, "thinking": "..."}
@@ -231,27 +319,102 @@ class LLMClient:
 
         for provider in self._build_chain():
             if not self._provider_available(provider):
-                logger.debug(f"[LLM] Skipping {provider} (unavailable/circuit open)")
+                logger.debug(f"[LLM] Skipping {provider} (unreachable/not configured)")
                 continue
 
+            key = self.get_available_key(provider)
+            if key is None:
+                logger.info(f"[LLM] {provider} — every key circuit-open/rate-limited, falling back")
+                if on_switch:
+                    self._compress_on_switch(messages, on_switch)
+                continue
+
+            pk = (provider, key)
             try:
                 result = self._try_provider_tools(
-                    provider, system, messages, tools, temperature, max_tokens
+                    provider, key, system, messages, tools, temperature, max_tokens
                 )
+            except _AuthError as e:
+                self._record_failure(pk, f"auth failure (HTTP {e.status_code})", immediate=True)
+                continue
             except _ProviderRateLimited:
-                self._rate_limit_backoff(provider)
+                self._rate_limit_backoff(pk)
                 continue
 
             if result:
-                self._reset_fails(provider)
+                self._reset_fails(pk)
+                self.last_provider_key = self._label_key(provider, key)
                 if provider != self.provider:
                     logger.info(f"[LLM] Fallback tools succeeded via {provider}")
                 return result
 
-            self._record_failure(provider, "chat_with_tools returned None")
+            self._record_failure(pk, "chat_with_tools returned None")
 
         logger.error("[LLM] chat_with_tools: all providers exhausted")
         return {"type": "done", "content": "All LLM providers failed"}
+
+    @staticmethod
+    def _compress_on_switch(messages: list, on_switch: Callable):
+        """Run the caller's compression callback and splice the result into
+        `messages` in place, so both this retry and the caller's own copy see it."""
+        try:
+            summary = on_switch()
+        except Exception as e:
+            logger.warning(f"[LLM] on_switch callback raised: {e}")
+            return
+        if not summary:
+            return
+        if len(messages) > _AGENT_HISTORY_KEEP + 1:
+            messages[:] = [messages[0], summary] + messages[-_AGENT_HISTORY_KEEP:]
+        else:
+            messages[:] = [messages[0], summary] + messages[1:]
+
+    # ── Key selection ──────────────────────────────────────────────────────────
+
+    def get_available_key(self, provider: str) -> str | None:
+        """
+        Round-robin across this provider's keys.
+
+        Prefers a key with immediate RPM headroom. If none have a free slot
+        right now but at least one is otherwise healthy (not circuit-open,
+        not rate-limit-backed-off), that key is returned anyway — the caller's
+        acquire() will briefly wait for a slot, same as the old single-key
+        behaviour. An RPM window being momentarily full under concurrent
+        agents is normal and must NOT be treated as the provider failing.
+
+        Returns None only when EVERY key is hard-failed (circuit-open or
+        rate-limit-backed-off from a real error) — that's the actual signal
+        that this provider is exhausted and the chain should fall back.
+        """
+        keys = self._provider_keys.get(provider, [])
+        if not keys:
+            return None
+
+        with self._key_index_lock:
+            start = self._next_key_index.get(provider, 0) % len(keys)
+            self._next_key_index[provider] = (start + 1) % len(keys)
+
+        now = time.time()
+        healthy_but_busy = None   # first healthy key with no free slot right now
+
+        for offset in range(len(keys)):
+            idx = (start + offset) % len(keys)
+            key = keys[idx]
+            pk  = (provider, key)
+            st  = self._get_state(pk)
+
+            if st["circuit_open_until"] > now:
+                continue
+            if st["rate_limited_until"] > now:
+                continue
+
+            if self._rate_limiters[pk].has_capacity():
+                return key   # best case — immediate slot, no waiting
+
+            if healthy_but_busy is None:
+                healthy_but_busy = key
+
+        return healthy_but_busy   # None only if every key is hard-failed
 
     # ── Chain helpers ──────────────────────────────────────────────────────────
 
@@ -263,64 +426,68 @@ class LLMClient:
                 chain.append(p)
         return chain
 
-    def _get_state(self, provider: str) -> dict:
-        if provider not in self._state:
-            self._state[provider] = {
-                "available":         None,
-                "available_at":      0.0,
-                "consecutive_fails": 0,
+    def _label_key(self, provider: str, key: str) -> str:
+        """Human-readable, secret-free label for logging/persistence — e.g. 'groq:key_2'."""
+        keys = self._provider_keys.get(provider, [])
+        idx  = keys.index(key) + 1 if key in keys else "?"
+        return f"{provider}:key_{idx}"
+
+    def _get_state(self, pk: tuple) -> dict:
+        if pk not in self._state:
+            self._state[pk] = {
+                "consecutive_fails":  0,
                 "circuit_open_until": 0.0,
+                "rate_limited_until": 0.0,
             }
-        return self._state[provider]
+        return self._state[pk]
+
+    def _get_reachability(self, provider: str) -> dict:
+        if provider not in self._reachability:
+            self._reachability[provider] = {"reachable": None, "checked_at": 0.0}
+        return self._reachability[provider]
 
     def _provider_available(self, provider: str) -> bool:
+        """Is this provider configured and reachable? (Not key-specific —
+        see get_available_key() for per-key quota/circuit state.)"""
         if provider == "none":
             return False
+        if not self._provider_keys.get(provider):
+            return False
 
-        st  = self._get_state(provider)
+        st  = self._get_reachability(provider)
         now = time.time()
+        if st["reachable"] is None or (now - st["checked_at"]) > _AVAILABILITY_TTL:
+            st["reachable"]  = self._check_provider(provider)
+            st["checked_at"] = now
 
-        # Circuit open
-        if st["circuit_open_until"] > now:
-            return False
+        return bool(st["reachable"])
 
-        # Rate-limit backoff (quota exhausted — don't retry until window expires)
-        if st.get("rate_limited_until", 0.0) > now:
-            return False
+    def _reset_fails(self, pk: tuple):
+        st = self._get_state(pk)
+        st["consecutive_fails"]  = 0
+        st["circuit_open_until"] = 0.0
+        st["rate_limited_until"] = 0.0
 
-        # Re-check if stale
-        if st["available"] is None or (now - st["available_at"]) > _AVAILABILITY_TTL:
-            st["available"]    = self._check_provider(provider)
-            st["available_at"] = now
+    def _rate_limit_backoff(self, pk: tuple, duration: int = 300):
+        """Back off a quota-exhausted key for `duration` seconds (default 5 min)."""
+        st = self._get_state(pk)
+        st["rate_limited_until"] = time.time() + duration
+        logger.warning(f"[LLM] {pk} quota exhausted — backing off for {duration}s")
 
-        return bool(st["available"])
-
-    def _reset_fails(self, provider: str):
-        st = self._get_state(provider)
-        st["consecutive_fails"]   = 0
-        st["circuit_open_until"]  = 0.0
-        st["rate_limited_until"]  = 0.0
-
-    def _rate_limit_backoff(self, provider: str, duration: int = 300):
-        """Back off a quota-exhausted provider for `duration` seconds (default 5 min)."""
-        st = self._get_state(provider)
-        until = time.time() + duration
-        st["rate_limited_until"] = until
-        st["available"]          = False
-        st["available_at"]       = time.time()
-        logger.warning(f"[LLM] {provider} quota exhausted — backing off for {duration}s")
-
-    def _record_failure(self, provider: str, reason: str = ""):
-        st = self._get_state(provider)
+    def _record_failure(self, pk: tuple, reason: str = "", immediate: bool = False):
+        """
+        Record a failure for one key. `immediate=True` opens the circuit right
+        away (used for auth failures — a bad key will never succeed on retry,
+        so there's no point waiting for the normal 3-strike threshold).
+        """
+        st = self._get_state(pk)
         st["consecutive_fails"] += 1
-        st["available"]          = None
-        st["available_at"]       = 0.0
 
-        if st["consecutive_fails"] >= _CIRCUIT_BREAKER_THRESHOLD:
+        if immediate or st["consecutive_fails"] >= _CIRCUIT_BREAKER_THRESHOLD:
             st["circuit_open_until"] = time.time() + _CIRCUIT_BREAKER_COOLDOWN
             logger.warning(
-                f"[LLM] Circuit OPEN for {provider} after "
-                f"{st['consecutive_fails']} failures ({reason}). "
+                f"[LLM] Circuit OPEN for {pk} after "
+                f"{st['consecutive_fails']} failure(s) ({reason}). "
                 f"Cooldown {_CIRCUIT_BREAKER_COOLDOWN}s."
             )
 
@@ -343,11 +510,12 @@ class LLMClient:
             return False
 
     def _check_groq(self) -> bool:
-        if not GROQ_API_KEY:
-            logger.debug("[LLM] GROQ_API_KEY not set — skipping Groq")
+        keys = self._provider_keys.get("groq", [])
+        if not keys:
+            logger.debug("[LLM] No Groq keys configured — skipping Groq")
             return False
         r = httpx.get(f"{GROQ_BASE}/models",
-                      headers={"Authorization": f"Bearer {GROQ_API_KEY}"}, timeout=8)
+                      headers={"Authorization": f"Bearer {keys[0]}"}, timeout=8)
         if r.status_code != 200:
             logger.warning(f"[LLM] Groq check: HTTP {r.status_code}")
             return False
@@ -355,19 +523,20 @@ class LLMClient:
         model  = _PROVIDER_MODELS["groq"]
         found  = any(model in m for m in models)
         if found:
-            logger.info(f"[LLM] Groq ready — {model}")
+            logger.info(f"[LLM] Groq ready — {model} ({len(keys)} key(s))")
         else:
             logger.warning(f"[LLM] Groq model '{model}' not available. Found: {models[:5]}")
         return found
 
     def _check_gemini(self) -> bool:
-        if not GEMINI_API_KEY:
-            logger.debug("[LLM] GEMINI_API_KEY not set — skipping Gemini")
+        keys = self._provider_keys.get("gemini", [])
+        if not keys:
+            logger.debug("[LLM] No Gemini keys configured — skipping Gemini")
             return False
-        r = httpx.get(f"{GEMINI_BASE}?key={GEMINI_API_KEY}", timeout=8)
+        r = httpx.get(f"{GEMINI_BASE}?key={keys[0]}", timeout=8)
         ok = r.status_code == 200
         if ok:
-            logger.info(f"[LLM] Gemini ready — {_PROVIDER_MODELS['gemini']}")
+            logger.info(f"[LLM] Gemini ready — {_PROVIDER_MODELS['gemini']} ({len(keys)} key(s))")
         else:
             logger.warning(f"[LLM] Gemini check: HTTP {r.status_code}")
         return ok
@@ -391,26 +560,26 @@ class LLMClient:
 
     # ── Provider dispatch ──────────────────────────────────────────────────────
 
-    def _try_provider(self, provider: str, system: str, user: str,
+    def _try_provider(self, provider: str, key: str, system: str, user: str,
                       temperature: float, max_tokens: int) -> str | None:
-        self._rate_limiters[provider].acquire()   # throttle to stay under RPM cap
+        self._rate_limiters[(provider, key)].acquire()   # throttle to stay under RPM cap
         model = _PROVIDER_MODELS.get(provider, "unknown")
         try:
             if provider == "groq":
                 return self._chat_openai_compat(
-                    GROQ_BASE, GROQ_API_KEY, model,
+                    GROQ_BASE, key, model,
                     system, user, temperature, max_tokens)
 
             if provider == "gemini":
                 return self._chat_gemini(
-                    model, system, user, temperature, max_tokens)
+                    model, key, system, user, temperature, max_tokens)
 
             if provider == "ollama":
                 return self._chat_ollama(
                     model, system, user, temperature, max_tokens)
 
-        except _ProviderRateLimited:
-            raise   # propagate — caller skips without circuit-breaking
+        except (_ProviderRateLimited, _AuthError):
+            raise   # propagate — caller decides how to record it
         except Exception as e:
             logger.warning(f"[LLM] {provider} dispatch error: {e}")
         return None
@@ -418,30 +587,31 @@ class LLMClient:
     def _try_provider_tools(
         self,
         provider:    str,
+        key:         str,
         system:      str,
         messages:    list,
         tools:       list,
         temperature: float,
         max_tokens:  int,
     ) -> dict | None:
-        self._rate_limiters[provider].acquire()   # throttle to stay under RPM cap
+        self._rate_limiters[(provider, key)].acquire()   # throttle to stay under RPM cap
         model = _PROVIDER_MODELS.get(provider, "unknown")
         try:
             if provider == "groq":
                 return self._chat_openai_compat_tools(
-                    GROQ_BASE, GROQ_API_KEY, model,
+                    GROQ_BASE, key, model,
                     system, messages, tools, temperature, max_tokens)
 
             if provider == "gemini":
                 return self._chat_gemini_tools(
-                    model, system, messages, tools, temperature, max_tokens)
+                    model, key, system, messages, tools, temperature, max_tokens)
 
             if provider == "ollama":
                 return self._chat_ollama_tools(
                     model, system, messages, tools, temperature, max_tokens)
 
-        except _ProviderRateLimited:
-            raise   # propagate — caller skips without circuit-breaking
+        except (_ProviderRateLimited, _AuthError):
+            raise   # propagate — caller decides how to record it
         except Exception as e:
             logger.warning(f"[LLM] {provider} tools dispatch error: {e}")
         return None
@@ -483,9 +653,9 @@ class LLMClient:
 
         return self._with_retry(_attempt)
 
-    def _chat_gemini(self, model: str, system: str, user: str,
+    def _chat_gemini(self, model: str, api_key: str, system: str, user: str,
                      temperature: float, max_tokens: int) -> str | None:
-        url     = f"{GEMINI_BASE}/{model}:generateContent?key={GEMINI_API_KEY}"
+        url     = f"{GEMINI_BASE}/{model}:generateContent?key={api_key}"
         payload = {
             "system_instruction": {"parts": [{"text": system}]},
             "contents":           [{"parts": [{"text": user}]}],
@@ -576,11 +746,11 @@ class LLMClient:
         return self._with_retry(_attempt)
 
     def _chat_gemini_tools(
-        self, model: str,
+        self, model: str, api_key: str,
         system: str, messages: list, tools: list,
         temperature: float, max_tokens: int,
     ) -> dict | None:
-        url = f"{GEMINI_BASE}/{model}:generateContent?key={GEMINI_API_KEY}"
+        url = f"{GEMINI_BASE}/{model}:generateContent?key={api_key}"
 
         # Convert messages to Gemini role format, handling tool_calls format
         contents = []
@@ -701,7 +871,9 @@ class LLMClient:
         """
         Retry fn up to max_attempts times with backoff.
         Raises _ProviderRateLimited if ALL failures were 429s — the caller
-        must NOT circuit-break in that case; the provider is fine, just busy.
+        must NOT circuit-break in that case; the key is fine, just busy.
+        Raises _AuthError immediately on 401/403 — a bad key will never
+        succeed on retry, so there's no point burning attempts on it.
         Returns None for genuine hard failures (connect error, 5xx, etc.).
         """
         backoff          = 2.0
@@ -718,7 +890,7 @@ class LLMClient:
                 if e.retry_after > _MAX_RETRY_WAIT:
                     logger.warning(
                         f"[LLM] 429 retry-after={e.retry_after}s exceeds cap "
-                        f"({_MAX_RETRY_WAIT}s) — skipping provider"
+                        f"({_MAX_RETRY_WAIT}s) — skipping key"
                     )
                     break
                 logger.warning(f"[LLM] 429 — waiting {e.retry_after}s (attempt {attempt}/{max_attempts})")
@@ -739,17 +911,21 @@ class LLMClient:
 
             except httpx.HTTPStatusError as e:
                 only_rate_limited = False
-                if e.response.status_code in (500, 502, 503, 504):
-                    logger.warning(f"[LLM] HTTP {e.response.status_code} attempt {attempt}/{max_attempts}")
+                code = e.response.status_code
+                if code in (500, 502, 503, 504):
+                    logger.warning(f"[LLM] HTTP {code} attempt {attempt}/{max_attempts}")
                     if attempt < max_attempts:
                         time.sleep(backoff); backoff *= 2
+                elif code in (401, 403):
+                    logger.error(f"[LLM] HTTP {code} — invalid/revoked key, not retrying")
+                    raise _AuthError(code)
                 else:
                     body = ""
                     try:
                         body = e.response.text[:300]
                     except Exception:
                         pass
-                    logger.error(f"[LLM] HTTP {e.response.status_code} — not retrying. Body: {body}")
+                    logger.error(f"[LLM] HTTP {code} — not retrying. Body: {body}")
                     break
 
             except Exception as e:
@@ -939,7 +1115,7 @@ def _build_tool_prompt(tools: list) -> str:
     )
 
 
-# ── Rate-limit exceptions ──────────────────────────────────────────────────────
+# ── Rate-limit / auth exceptions ────────────────────────────────────────────────
 
 class _RateLimitError(Exception):
     """Raised inside _attempt() to signal a 429 with a retry-after value."""
@@ -949,9 +1125,17 @@ class _RateLimitError(Exception):
 
 class _ProviderRateLimited(Exception):
     """Raised by _with_retry when ALL retries were 429s.
-    The provider is working fine — callers must NOT record this as a failure
+    The key is working fine — callers must NOT record this as a failure
     or open the circuit breaker."""
     pass
+
+
+class _AuthError(Exception):
+    """Raised by _with_retry on 401/403 — the key is invalid/revoked.
+    This will never succeed on retry, so callers open the circuit immediately
+    instead of waiting for the normal 3-strike threshold."""
+    def __init__(self, status_code: int):
+        self.status_code = status_code
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────

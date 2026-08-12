@@ -17,6 +17,9 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from database.connection import SessionLocal
+from database import crud
+
 logger = logging.getLogger(__name__)
 
 REPORT_FINDING_TOOL = "report_finding"
@@ -62,12 +65,16 @@ class BaseAgent:
         system_prompt: str,
         max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "5")),
         scope: str = None,
+        session_id: str = None,
+        agent_name: str = None,
     ):
         self.llm            = llm
         self.tool_registry  = tool_registry   # {name: callable}
         self.system_prompt  = system_prompt
         self.max_iterations = max_iterations
         self.scope          = scope            # passed to tools that enforce scope
+        self.session_id     = session_id       # DB session this run belongs to (optional)
+        self.agent_name     = agent_name       # recon | web | network | cloud (optional)
 
     def run(self, goal: str, context: dict = None) -> AgentResult:
         result   = AgentResult()
@@ -84,6 +91,7 @@ class BaseAgent:
                     system=self.system_prompt,
                     messages=messages,
                     tools=schemas,
+                    on_switch=lambda: self._build_trim_summary(result),
                 )
             except Exception as e:
                 logger.error(f"[AGENT] LLM error on iteration {i+1}: {e}")
@@ -122,6 +130,14 @@ class BaseAgent:
 
                 log_entry["observation"] = _truncate(observation)
                 result.log.append(log_entry)
+
+                entry_type = "finding" if (
+                    tool_name == REPORT_FINDING_TOOL
+                    and isinstance(observation, dict)
+                    and observation.get("status") == "accepted"
+                ) else "tool_call"
+                provider = getattr(self.llm, "last_provider_key", None)
+                self._persist_iteration(log_entry, entry_type, provider)
 
                 # Append assistant turn + observation in OpenAI tool_calls format.
                 # Storing as plain JSON text in "content" causes Groq's model to
@@ -176,6 +192,27 @@ class BaseAgent:
             logger.warning(f"[AGENT] Reached max_iterations={self.max_iterations}")
 
         return result
+
+    def _persist_iteration(self, log_entry: dict, entry_type: str, provider: str = None):
+        """
+        Write one iteration's tool call + result to AgentIterationLog. Durability
+        only — the live compression path (_build_trim_summary) reads in-memory
+        state, not this table. Best-effort: a DB hiccup must never interrupt
+        a running scan, so failures are logged and swallowed.
+        """
+        if not self.session_id:
+            return
+        try:
+            db = SessionLocal()
+            try:
+                crud.log_agent_iteration(
+                    db, self.session_id, self.agent_name or "unknown",
+                    log_entry.get("iteration", 0), entry_type, log_entry, provider,
+                )
+            finally:
+                db.close()
+        except Exception as e:
+            logger.debug(f"[AGENT] Iteration persistence failed (non-fatal): {e}")
 
     # ── Tool execution ─────────────────────────────────────────────────────────
 

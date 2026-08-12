@@ -9,7 +9,9 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from database.models import ScanSession, ScanFinding, AnalystFeedback, ScanReport
+from database.models import (
+    ScanSession, ScanFinding, AnalystFeedback, ScanReport, AgentIterationLog,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +76,26 @@ def finalise_session(db: Session, session_dict: dict) -> None:
     obj.error            = session_dict.get("error")
     db.commit()
     logger.info(f"[DB] Session finalised: {obj.id} | status={obj.status}")
+
+
+# ── Agent iteration log ───────────────────────────────────────────────────────
+
+def log_agent_iteration(db: Session, session_id: str, agent: str, iteration: int,
+                        entry_type: str, payload: dict, provider: str = None) -> None:
+    """
+    Durable per-iteration record of an agent's ReAct loop. Written continuously
+    as the agent runs (see BaseAgent._persist_iteration) — best-effort, callers
+    must swallow exceptions so a DB hiccup never interrupts a running scan.
+    """
+    db.add(AgentIterationLog(
+        session_id = session_id,
+        agent      = agent,
+        iteration  = iteration,
+        entry_type = entry_type,
+        payload    = payload,
+        provider   = provider,
+    ))
+    db.commit()
 
 
 # ── Findings ───────────────────────────────────────────────────────────────────

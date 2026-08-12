@@ -60,12 +60,14 @@ class ScanSession(Base):
     execution_plan   = Column(JSONText,    nullable=True)    # dict
 
     # Relationships
-    findings  = relationship("ScanFinding",    back_populates="session",
-                             cascade="all, delete-orphan")
-    feedback  = relationship("AnalystFeedback", back_populates="session",
-                             cascade="all, delete-orphan")
-    reports   = relationship("ScanReport",     back_populates="session",
-                             cascade="all, delete-orphan")
+    findings   = relationship("ScanFinding",       back_populates="session",
+                              cascade="all, delete-orphan")
+    feedback   = relationship("AnalystFeedback",   back_populates="session",
+                              cascade="all, delete-orphan")
+    reports    = relationship("ScanReport",        back_populates="session",
+                              cascade="all, delete-orphan")
+    agent_logs = relationship("AgentIterationLog", back_populates="session",
+                              cascade="all, delete-orphan")
 
 
 class ScanFinding(Base):
@@ -162,6 +164,28 @@ class AnalystFeedback(Base):
     # Relationships
     session = relationship("ScanSession", back_populates="feedback")
     finding = relationship("ScanFinding", back_populates="feedbacks")
+
+
+class AgentIterationLog(Base):
+    """
+    Durable per-iteration record of an agent's ReAct loop (recon/web/network/cloud).
+    Written continuously as the agent runs — not just on a provider switch — so
+    progress is never at risk regardless of when/why a switch happens.
+    Not read by the live compression path (that uses in-memory state); this is
+    for crash recovery and audit trail.
+    """
+    __tablename__ = "agent_iteration_log"
+
+    id         = Column(Integer,    primary_key=True, autoincrement=True)
+    session_id = Column(String(64), ForeignKey("scan_sessions.id"), nullable=False)
+    agent      = Column(String(32), nullable=False)   # recon | web | network | cloud
+    iteration  = Column(Integer,    nullable=False)
+    entry_type = Column(String(16), nullable=False)   # tool_call | observation | finding
+    payload    = Column(JSONText,   nullable=True)
+    provider   = Column(String(64), nullable=True)     # e.g. "groq" or "groq:groq_key_1"
+    created_at = Column(DateTime,   nullable=False, default=datetime.utcnow)
+
+    session = relationship("ScanSession", back_populates="agent_logs")
 
 
 class ScanReport(Base):

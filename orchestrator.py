@@ -205,24 +205,28 @@ class Orchestrator:
     def _dispatch_agents(self, target: str, recon: dict,
                          agent_groups: dict, session: dict,
                          tool_filter: list = None) -> list:
-        results = []
-        futures = {}
+        results    = []
+        futures    = {}
+        session_id = session.get("session_id")
 
         task_map = {}
         if "web_agent" in agent_groups:
             _items = agent_groups["web_agent"]
             task_map["web_agent"] = lambda i=_items: _web_agent.run(
-                target, self.config, checklist_items=i, tool_filter=tool_filter
+                target, self.config, checklist_items=i, tool_filter=tool_filter,
+                session_id=session_id,
             )
         if "network_agent" in agent_groups:
             _items = agent_groups["network_agent"]
             task_map["network_agent"] = lambda i=_items: _network_agent.run(
-                target, recon, self.config, checklist_items=i, tool_filter=tool_filter
+                target, recon, self.config, checklist_items=i, tool_filter=tool_filter,
+                session_id=session_id,
             )
         if "cloud_agent" in agent_groups:
             _items = agent_groups["cloud_agent"]
             task_map["cloud_agent"] = lambda i=_items: _cloud_agent.run(
-                target, self.config, checklist_items=i, tool_filter=tool_filter
+                target, self.config, checklist_items=i, tool_filter=tool_filter,
+                session_id=session_id,
             )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:

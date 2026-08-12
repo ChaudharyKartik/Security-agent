@@ -63,7 +63,8 @@ class NetworkAgent:
         self.scope = scope
 
     def run(self, target: str, recon: dict = None,
-            config=None, checklist_items=None, tool_filter=None) -> dict:
+            config=None, checklist_items=None, tool_filter=None,
+            session_id: str = None) -> dict:
 
         registry = build_registry(run_nmap, search_cve, http_request, report_finding)
 
@@ -81,6 +82,8 @@ class NetworkAgent:
             system_prompt  = _SYSTEM_PROMPT,
             max_iterations = int(os.getenv("NETWORK_MAX_ITERATIONS", "15")),
             scope          = self.scope or target,
+            session_id     = session_id,
+            agent_name     = "network",
         )
 
         goal = (
