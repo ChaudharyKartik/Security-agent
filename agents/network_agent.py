@@ -82,6 +82,7 @@ class NetworkAgent:
             system_prompt  = _SYSTEM_PROMPT,
             max_iterations = int(os.getenv("NETWORK_MAX_ITERATIONS", "15")),
             scope          = self.scope or target,
+            auth_headers   = config.build_auth_headers() if config else None,
             session_id     = session_id,
             agent_name     = "network",
         )

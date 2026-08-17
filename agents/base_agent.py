@@ -65,6 +65,7 @@ class BaseAgent:
         system_prompt: str,
         max_iterations: int = int(os.getenv("AGENT_MAX_ITERATIONS", "5")),
         scope: str = None,
+        auth_headers: dict = None,
         session_id: str = None,
         agent_name: str = None,
     ):
@@ -73,6 +74,7 @@ class BaseAgent:
         self.system_prompt  = system_prompt
         self.max_iterations = max_iterations
         self.scope          = scope            # passed to tools that enforce scope
+        self.auth_headers   = auth_headers     # passed to tools that accept it — never LLM-visible
         self.session_id     = session_id       # DB session this run belongs to (optional)
         self.agent_name     = agent_name       # recon | web | network | cloud (optional)
 
@@ -222,11 +224,20 @@ class BaseAgent:
             logger.warning(f"[AGENT] Unknown tool: {name}")
             return {"error": f"Unknown tool '{name}'. Available: {list(self.tool_registry)}"}
 
+        # Copy — never mutate the caller's `args` dict. It's the same object
+        # used for log_entry["args"] (result.log, AgentIterationLog persistence,
+        # _build_trim_summary's compressed context). Injected values like
+        # auth_headers must only ever reach the actual tool call, never get
+        # logged, persisted, or surfaced back to an LLM.
+        call_kwargs = dict(args)
         try:
-            # Only pass scope to tools whose signature actually accepts it
-            if self.scope is not None and "scope" in inspect.signature(fn).parameters:
-                return fn(scope=self.scope, **args)
-            return fn(**args)
+            sig_params = inspect.signature(fn).parameters
+            # Only inject values into tools whose signature actually accepts them
+            if self.scope is not None and "scope" in sig_params:
+                call_kwargs["scope"] = self.scope
+            if self.auth_headers and "auth_headers" in sig_params:
+                call_kwargs["auth_headers"] = self.auth_headers
+            return fn(**call_kwargs)
         except TypeError as e:
             # Bad args from LLM — return error so LLM can correct
             logger.warning(f"[AGENT] Tool {name} bad args: {e}")

@@ -20,14 +20,22 @@ _SAFE_SCHEMES     = {"http", "https"}
 
 
 def http_request(
-    method:  str,
-    url:     str,
-    headers: dict  = None,
-    body:    str   = None,
-    timeout: int   = _DEFAULT_TIMEOUT,
-    scope:   str   = None,
+    method:       str,
+    url:          str,
+    headers:      dict = None,
+    body:         str  = None,
+    timeout:      int  = _DEFAULT_TIMEOUT,
+    scope:        str  = None,
+    auth_headers: dict = None,
 ) -> dict:
-    """Make an HTTP request and return status, headers, and body."""
+    """
+    Make an HTTP request and return status, headers, and body.
+
+    `auth_headers` is not part of the LLM-visible schema — it's injected by
+    BaseAgent._execute_tool() from the agent's configured scan auth, the same
+    way `scope` is. The LLM never sees or controls it; it exists purely so the
+    agent's requests carry the user's configured authentication automatically.
+    """
     method = method.upper()
 
     # Coerce headers to dict — Ollama sometimes passes a string repr
@@ -65,8 +73,12 @@ def http_request(
             }
 
     # ── Request ────────────────────────────────────────────────────────────────
+    # Configured scan auth is applied first, then the LLM's own headers layer on
+    # top — so a request is authenticated by default, but the agent can still
+    # deliberately override a specific header (e.g. to test unauthenticated access).
     hdrs = {
         "User-Agent": "SecurityAgent/1.0",
+        **(auth_headers or {}),
         **(headers or {}),
     }
 

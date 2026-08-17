@@ -75,6 +75,7 @@ class CloudAgent:
             system_prompt  = _SYSTEM_PROMPT,
             max_iterations = int(os.getenv("CLOUD_MAX_ITERATIONS", "15")),
             scope          = self.scope or target,
+            auth_headers   = config.build_auth_headers() if config else None,
             session_id     = session_id,
             agent_name     = "cloud",
         )
