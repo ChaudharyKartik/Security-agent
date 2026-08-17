@@ -117,6 +117,7 @@ class ScanFinding(Base):
     description           = Column(Text,       nullable=True)
     solution              = Column(Text,       nullable=True)
     exploitation_narrative= Column(Text,       nullable=True)
+    reproduction_steps    = Column(JSONText,   nullable=True)  # list[str], developer-facing repro steps
     analyst_note          = Column(Text,       nullable=True)
     exploitability        = Column(String(128),nullable=True)
     exploit_available     = Column(Boolean,    nullable=True, default=False)

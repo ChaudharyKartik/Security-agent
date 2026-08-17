@@ -8,6 +8,8 @@ import csv
 import logging
 from datetime import datetime
 
+from enrichment import _impact_label
+
 logger = logging.getLogger(__name__)
 REPORTS_DIR = "reports"
 
@@ -89,11 +91,34 @@ def _gen_csv(session: dict, base: str) -> str:
 # PDF
 # ══════════════════════════════════════════════════════════════════════════════
 
+_PDF_UNICODE_FALLBACKS = {
+    "—": "-",    # em dash —
+    "–": "-",    # en dash –
+    "‘": "'",    # left single quote '
+    "’": "'",    # right single quote '
+    "“": '"',    # left double quote "
+    "”": '"',    # right double quote "
+    "…": "...",  # ellipsis …
+    "•": "-",    # bullet •
+    "→": "->",   # right arrow
+    "←": "<-",   # left arrow
+    " ": " ",    # non-breaking space
+}
+
+
 def _s(text, length: int = 500) -> str:
-    """Sanitize text for fpdf built-in fonts (Latin-1 only). Replaces unmappable chars with '?'."""
+    """
+    Sanitize text for fpdf built-in fonts (Latin-1 only). Transliterates common
+    Unicode punctuation (em/en dash, smart quotes, ellipsis, bullet) instead of
+    dropping it — those show up constantly in generated narrative text — and
+    only falls back to '?' for genuinely unmappable characters (emoji, CJK, etc).
+    """
     if not text:
         return ""
-    return str(text)[:length].encode("latin-1", errors="replace").decode("latin-1")
+    s = str(text)
+    for uni, ascii_eq in _PDF_UNICODE_FALLBACKS.items():
+        s = s.replace(uni, ascii_eq)
+    return s[:length].encode("latin-1", errors="replace").decode("latin-1")
 
 
 def _gen_pdf(session: dict, base: str) -> str:
@@ -866,7 +891,13 @@ def _gen_professional_pdf(session: dict, base: str) -> str:
 
     pdf.ln(6)
 
-    # Tabular summary
+    # Tabular summary — keep this small table together rather than letting FPDF's
+    # auto page-break split it mid-table and strand a couple of rows on an
+    # otherwise-blank next page.
+    _tabular_summary_height = 8 + 6 * 6   # header line + 6 rows @ 6mm
+    if pdf.get_y() + _tabular_summary_height > pdf.page_break_trigger:
+        pdf.add_page()
+
     pdf.set_font("Helvetica", "B", 11)
     pdf.set_text_color(20, 30, 60)
     pdf.cell(0, 8, "Tabular Summary", 0, 1)
@@ -929,6 +960,7 @@ def _gen_professional_pdf(session: dict, base: str) -> str:
                         f"= {f.get('cvss_score','-')} ({sev})")
             severity_bullets = [
                 ("Risk",           sev),
+                ("Impact",         _impact_label(f.get("impact_score") or 0)),
                 ("Exploitability", f.get("exploitability", "-")),
                 ("CVSS Score",     cvss_str),
             ]

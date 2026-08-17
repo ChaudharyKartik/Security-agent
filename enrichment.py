@@ -128,8 +128,9 @@ def _enrich_single(finding: dict, module_name: str, target: str, tool_used: str)
         # Developer-facing reproduction steps (numbered list)
         "reproduction_steps":  _generate_reproduction_steps(finding, ftype, target),
 
-        # Attacker narrative
+        # Attacker narrative + business-impact statement
         "exploitation_narrative": _build_exploitation_narrative(finding, severity, ftype, target),
+        "impact":                 _build_severity_description(finding, severity, cvss_result["metrics"]),
         "analyst_note":           _generate_analyst_note(finding, severity, module_name),
 
         # Compliance & metadata
@@ -215,6 +216,61 @@ def _exploitability_label(score: float) -> str:
     if score >= 4.0: return "Moderately Exploitable — Requires some conditions"
     if score >= 0.1: return "Difficult to Exploit — Limited conditions"
     return "Not Directly Exploitable"
+
+
+def _impact_label(impact_score: float) -> str:
+    """
+    Bucket the CVSS 3.1 Impact sub-score (0-6.42 range, see cvss.py) into a
+    qualitative label, the same way _exploitability_label() already buckets
+    the Exploitability sub-score.
+    """
+    if impact_score >= 5.0: return "High - significant loss of confidentiality, integrity, or availability"
+    if impact_score >= 2.5: return "Medium - partial loss of confidentiality, integrity, or availability"
+    if impact_score > 0:    return "Low - limited loss of confidentiality, integrity, or availability"
+    return "None - no direct loss of confidentiality, integrity, or availability"
+
+
+def _build_severity_description(finding: dict, severity: str, cvss_metrics: dict) -> str:
+    """
+    Business-impact statement, distinct from the exploitation narrative:
+    exploitation_narrative explains HOW an attacker exploits the finding;
+    this explains WHAT breaks and WHY it matters, framed around the actual
+    CIA-triad impact computed for this specific finding.
+    """
+    name = finding.get("name") or "this finding"
+    c = cvss_metrics.get("C", "N")
+    i = cvss_metrics.get("I", "N")
+    a = cvss_metrics.get("A", "N")
+
+    impacts = []
+    if c == "H":   impacts.append("full disclosure of sensitive data")
+    elif c == "L": impacts.append("limited exposure of sensitive data")
+    if i == "H":   impacts.append("unauthorised modification of data or application state")
+    elif i == "L": impacts.append("limited unauthorised modification of data")
+    if a == "H":   impacts.append("denial of service or loss of availability")
+    elif a == "L": impacts.append("degraded availability")
+
+    if not impacts:
+        impact_clause = (
+            "no direct compromise of confidentiality, integrity, or availability on its own, "
+            "but it weakens the application's overall security posture and may be chained with other issues"
+        )
+    elif len(impacts) == 1:
+        impact_clause = impacts[0]
+    else:
+        impact_clause = ", ".join(impacts[:-1]) + f", and {impacts[-1]}"
+
+    urgency = (
+        "poses an immediate risk to the confidentiality, integrity, or availability of the application"
+        if severity in ("Critical", "High") else
+        "contributes to the overall attack surface and should be remediated as part of standard hardening"
+    )
+
+    return (
+        f"Successful exploitation of '{name}' can result in {impact_clause}. "
+        f"This finding is rated {severity} based on the ease of exploitation and the scope of impact on "
+        f"the affected system. Left unaddressed, it {urgency}."
+    )
 
 
 def _generate_id(finding: dict, module: str) -> str:
