@@ -84,7 +84,7 @@ _PROVIDER_KEYS: dict[str, list[str]] = {
 
 # Per-provider default models — each can be overridden independently
 _PROVIDER_MODELS: dict[str, str] = {
-    "groq":   os.getenv("GROQ_MODEL",   "llama-3.3-70b-versatile"),
+    "groq":   os.getenv("GROQ_MODEL",   "openai/gpt-oss-120b"),
     "gemini": os.getenv("GEMINI_MODEL", "gemini-flash-latest"),
     "ollama": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
 }
@@ -752,32 +752,32 @@ class LLMClient:
     ) -> dict | None:
         url = f"{GEMINI_BASE}/{model}:generateContent?key={api_key}"
 
-        # Convert messages to Gemini role format, handling tool_calls format
+        # Convert messages to Gemini role format. Historical tool-call turns are
+        # flattened to plain text rather than reconstructed as structured
+        # functionCall/functionResponse parts. Gemini's newer models require a
+        # thoughtSignature on every functionCall part, which is opaque metadata
+        # we have no way to carry through our provider-agnostic message history —
+        # a turn produced by Groq or Ollama has no such signature to echo back,
+        # and sending one back without it gets rejected with HTTP 400. Only
+        # Gemini's own live response for the CURRENT turn needs the structured
+        # format, and that's handled entirely by the API itself, not by us
+        # re-encoding history. Same flattening approach _normalise_messages_for_prompt()
+        # already uses for Ollama's prompt-fallback mode, for the same reason.
         contents = []
         for m in messages:
             if m["role"] == "assistant":
                 if m.get("tool_calls"):
                     tc = m["tool_calls"][0]
                     fn = tc["function"]
-                    try:
-                        args = json.loads(fn["arguments"])
-                    except (json.JSONDecodeError, TypeError):
-                        args = fn.get("arguments", {})
-                    parts = []
+                    text = f"[Called tool `{fn['name']}` with args: {fn.get('arguments', '{}')}]"
                     if m.get("content"):
-                        parts.append({"text": m["content"]})
-                    parts.append({"functionCall": {"name": fn["name"], "args": args}})
-                    contents.append({"role": "model", "parts": parts})
+                        text = f"{m['content']}\n{text}"
+                    contents.append({"role": "model", "parts": [{"text": text}]})
                 else:
                     contents.append({"role": "model", "parts": [{"text": m.get("content") or ""}]})
             elif m["role"] == "tool":
-                contents.append({
-                    "role": "user",
-                    "parts": [{"functionResponse": {
-                        "name":     m.get("name", "tool"),
-                        "response": {"result": m.get("content", "")},
-                    }}],
-                })
+                text = f"[Tool `{m.get('name', 'tool')}` result: {m.get('content', '')}]"
+                contents.append({"role": "user", "parts": [{"text": text}]})
             else:
                 contents.append({"role": "user", "parts": [{"text": m.get("content") or ""}]})
 
