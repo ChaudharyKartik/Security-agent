@@ -85,7 +85,7 @@ _PROVIDER_KEYS: dict[str, list[str]] = {
 # Per-provider default models — each can be overridden independently
 _PROVIDER_MODELS: dict[str, str] = {
     "groq":   os.getenv("GROQ_MODEL",   "openai/gpt-oss-120b"),
-    "gemini": os.getenv("GEMINI_MODEL", "gemini-flash-latest"),
+    "gemini": os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest"),
     "ollama": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
 }
 # LLM_MODEL overrides all providers if set (legacy behaviour preserved)
@@ -118,6 +118,24 @@ _RPM_LIMITS: dict[str, int] = {
     "gemini": int(os.getenv("GEMINI_RPM", "12")),   # free: 15 RPM per key
     "ollama": int(os.getenv("OLLAMA_RPM", "500")),  # local — no real limit
 }
+
+# Per-provider max request size, in estimated tokens — this is a hard per-request
+# ceiling (Groq's free tier caps tokens-per-minute at 8000 for some models, and
+# a single large conversation can exceed that in ONE call). This is a different
+# problem than RPM: no amount of key rotation fixes an oversized single request,
+# since the ceiling is on the model/tier, not the key. Set conservatively below
+# the real cap to leave room for the response's own max_tokens, which usually
+# counts against the same budget.
+_MAX_REQUEST_TOKENS: dict[str, int] = {
+    "groq":   int(os.getenv("GROQ_MAX_REQUEST_TOKENS",   "6000")),
+    "gemini": int(os.getenv("GEMINI_MAX_REQUEST_TOKENS", "20000")),
+    "ollama": int(os.getenv("OLLAMA_MAX_REQUEST_TOKENS", "100000")),  # local — no real limit
+}
+
+
+def _estimate_tokens(text) -> int:
+    """Cheap, dependency-free token estimate (~4 chars/token for English)."""
+    return len(str(text)) // 4
 
 
 class _RateLimiter:
@@ -329,6 +347,21 @@ class LLMClient:
                     self._compress_on_switch(messages, on_switch)
                 continue
 
+            # Proactive size check — a conversation that's grown too large for
+            # THIS provider's per-request token budget will 413 no matter which
+            # key serves it (it's a model/tier ceiling, not a quota issue), so
+            # rotating keys or waiting doesn't help. Compress before sending
+            # instead of after the guaranteed failure.
+            if on_switch:
+                estimated = self._estimate_request_tokens(system, messages, tools)
+                limit = _MAX_REQUEST_TOKENS.get(provider, 10**9)
+                if estimated > limit:
+                    logger.info(
+                        f"[LLM] Estimated request size (~{estimated} tokens) exceeds "
+                        f"{provider}'s per-request budget (~{limit}) — compressing before send"
+                    )
+                    self._compress_on_switch(messages, on_switch)
+
             pk = (provider, key)
             try:
                 result = self._try_provider_tools(
@@ -368,6 +401,17 @@ class LLMClient:
             messages[:] = [messages[0], summary] + messages[-_AGENT_HISTORY_KEEP:]
         else:
             messages[:] = [messages[0], summary] + messages[1:]
+
+    @staticmethod
+    def _estimate_request_tokens(system: str, messages: list, tools: list) -> int:
+        """Cheap upper-bound estimate of the outgoing request's token size —
+        system prompt + full message history + tool schemas."""
+        total = _estimate_tokens(system) + _estimate_tokens(tools)
+        for m in messages:
+            total += _estimate_tokens(m.get("content") or "")
+            if m.get("tool_calls"):
+                total += _estimate_tokens(m["tool_calls"])
+        return total
 
     # ── Key selection ──────────────────────────────────────────────────────────
 
@@ -510,36 +554,55 @@ class LLMClient:
             return False
 
     def _check_groq(self) -> bool:
+        """
+        Reachable if ANY configured key works — not just the first one. A single
+        bad/revoked key must never write off the whole provider when its
+        siblings are fine; that previously left every other key idle for a
+        full scan because this check only ever tested keys[0].
+        """
         keys = self._provider_keys.get("groq", [])
         if not keys:
             logger.debug("[LLM] No Groq keys configured — skipping Groq")
             return False
-        r = httpx.get(f"{GROQ_BASE}/models",
-                      headers={"Authorization": f"Bearer {keys[0]}"}, timeout=8)
-        if r.status_code != 200:
-            logger.warning(f"[LLM] Groq check: HTTP {r.status_code}")
-            return False
-        models = [m["id"] for m in r.json().get("data", [])]
-        model  = _PROVIDER_MODELS["groq"]
-        found  = any(model in m for m in models)
-        if found:
-            logger.info(f"[LLM] Groq ready — {model} ({len(keys)} key(s))")
-        else:
-            logger.warning(f"[LLM] Groq model '{model}' not available. Found: {models[:5]}")
-        return found
+        model = _PROVIDER_MODELS["groq"]
+        last_status = None
+        for key in keys:
+            try:
+                r = httpx.get(f"{GROQ_BASE}/models",
+                              headers={"Authorization": f"Bearer {key}"}, timeout=8)
+            except httpx.HTTPError as e:
+                last_status = str(e)
+                continue
+            last_status = r.status_code
+            if r.status_code != 200:
+                continue
+            models = [m["id"] for m in r.json().get("data", [])]
+            if any(model in m for m in models):
+                logger.info(f"[LLM] Groq ready — {model} ({len(keys)} key(s))")
+                return True
+        logger.warning(f"[LLM] Groq unreachable on all {len(keys)} key(s) "
+                        f"(last: {last_status}) or model '{model}' unavailable")
+        return False
 
     def _check_gemini(self) -> bool:
+        """Reachable if ANY configured key works — see _check_groq() for why."""
         keys = self._provider_keys.get("gemini", [])
         if not keys:
             logger.debug("[LLM] No Gemini keys configured — skipping Gemini")
             return False
-        r = httpx.get(f"{GEMINI_BASE}?key={keys[0]}", timeout=8)
-        ok = r.status_code == 200
-        if ok:
-            logger.info(f"[LLM] Gemini ready — {_PROVIDER_MODELS['gemini']} ({len(keys)} key(s))")
-        else:
-            logger.warning(f"[LLM] Gemini check: HTTP {r.status_code}")
-        return ok
+        last_status = None
+        for key in keys:
+            try:
+                r = httpx.get(f"{GEMINI_BASE}?key={key}", timeout=8)
+            except httpx.HTTPError as e:
+                last_status = str(e)
+                continue
+            last_status = r.status_code
+            if r.status_code == 200:
+                logger.info(f"[LLM] Gemini ready — {_PROVIDER_MODELS['gemini']} ({len(keys)} key(s))")
+                return True
+        logger.warning(f"[LLM] Gemini unreachable on all {len(keys)} key(s) (last: {last_status})")
+        return False
 
     def _check_ollama(self) -> bool:
         try:
