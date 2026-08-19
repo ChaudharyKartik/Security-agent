@@ -209,12 +209,14 @@ class Orchestrator:
         futures    = {}
         session_id = session.get("session_id")
 
+        scan_mode = session.get("scan_mode", "full")
+
         task_map = {}
         if "web_agent" in agent_groups:
             _items = agent_groups["web_agent"]
             task_map["web_agent"] = lambda i=_items: _web_agent.run(
                 target, self.config, checklist_items=i, tool_filter=tool_filter,
-                session_id=session_id,
+                session_id=session_id, scan_mode=scan_mode,
             )
         if "network_agent" in agent_groups:
             _items = agent_groups["network_agent"]
@@ -329,6 +331,10 @@ class Orchestrator:
 
         try:
             _set("scanning")
+            # session["scan_mode"] still reads "recon_only" from phase 1 at this
+            # point (this session object is the same one that phase created) —
+            # update it so _dispatch_agents() picks the focused methodology.
+            session["scan_mode"] = "single"
             domain       = self._infer_domain(target, recon)
             agent_groups = self._select_agents(domain, "single", requested_tests)
             session["execution_plan"] = {

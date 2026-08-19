@@ -106,12 +106,84 @@ def cvss_from_finding_type(finding_type: str, finding: dict) -> CVSSMetrics:
     service = (finding.get("service") or "").lower()
 
     profiles = {
-        # Web vulns - network reachable, often low complexity
+        # Generic/unclassified web vulns - fallback only, real subtypes below
+        # should be used whenever the finding can be classified more precisely.
         "web_vulnerability": CVSSMetrics(
             attack_vector="N", attack_complexity="L",
             privileges_required="N", user_interaction="R",
             scope="U",
             confidentiality_impact="L", integrity_impact="L", availability_impact="N"
+        ),
+        # SQL Injection - unauthenticated, full DB read/write, no user interaction
+        "sql_injection": CVSSMetrics(
+            attack_vector="N", attack_complexity="L",
+            privileges_required="N", user_interaction="N",
+            scope="U",
+            confidentiality_impact="H", integrity_impact="H", availability_impact="L"
+        ),
+        # Command injection - typically RCE, scope change (full host compromise)
+        "command_injection": CVSSMetrics(
+            attack_vector="N", attack_complexity="L",
+            privileges_required="N", user_interaction="N",
+            scope="C",
+            confidentiality_impact="H", integrity_impact="H", availability_impact="H"
+        ),
+        # Reflected XSS - needs victim interaction, session-scoped impact
+        "xss_reflected": CVSSMetrics(
+            attack_vector="N", attack_complexity="L",
+            privileges_required="N", user_interaction="R",
+            scope="U",
+            confidentiality_impact="L", integrity_impact="L", availability_impact="N"
+        ),
+        # Stored XSS - persists and hits every visitor; can act on their behalf
+        "xss_stored": CVSSMetrics(
+            attack_vector="N", attack_complexity="L",
+            privileges_required="N", user_interaction="R",
+            scope="C",
+            confidentiality_impact="L", integrity_impact="H", availability_impact="N"
+        ),
+        # Path traversal - arbitrary file read, no auth needed
+        "path_traversal": CVSSMetrics(
+            attack_vector="N", attack_complexity="L",
+            privileges_required="N", user_interaction="N",
+            scope="U",
+            confidentiality_impact="H", integrity_impact="N", availability_impact="N"
+        ),
+        # IDOR - requires a session, but trivially escalates to other users' data
+        "idor": CVSSMetrics(
+            attack_vector="N", attack_complexity="L",
+            privileges_required="L", user_interaction="N",
+            scope="U",
+            confidentiality_impact="H", integrity_impact="L", availability_impact="N"
+        ),
+        # SSRF - pivots to internal-only resources (metadata endpoints, internal APIs)
+        "ssrf": CVSSMetrics(
+            attack_vector="N", attack_complexity="L",
+            privileges_required="N", user_interaction="N",
+            scope="U",
+            confidentiality_impact="H", integrity_impact="N", availability_impact="N"
+        ),
+        # CSRF - forces a state-changing action, no direct data read
+        "csrf": CVSSMetrics(
+            attack_vector="N", attack_complexity="L",
+            privileges_required="N", user_interaction="R",
+            scope="U",
+            confidentiality_impact="N", integrity_impact="L", availability_impact="N"
+        ),
+        # Open redirect - phishing/token-leak enabler, low direct impact
+        "open_redirect": CVSSMetrics(
+            attack_vector="N", attack_complexity="L",
+            privileges_required="N", user_interaction="R",
+            scope="U",
+            confidentiality_impact="L", integrity_impact="N", availability_impact="N"
+        ),
+        # CORS misconfiguration - situational (needs credentialed request), but
+        # full account data theft when it lands
+        "cors_misconfiguration": CVSSMetrics(
+            attack_vector="N", attack_complexity="H",
+            privileges_required="N", user_interaction="N",
+            scope="U",
+            confidentiality_impact="H", integrity_impact="N", availability_impact="N"
         ),
         # Missing headers - low direct impact but enables other attacks
         "missing_security_header": CVSSMetrics(

@@ -51,9 +51,43 @@ TESTING PHASES:
    CORS:             Origin: https://evil.com → check Access-Control-Allow-Origin
    Open redirect:    ?next= ?url= ?redirect= → https://evil.com — confirm 3xx to external domain
 
-FINDING TYPES: web_vulnerability | auth_misconfiguration | missing_security_header | information_disclosure | insecure_cookie
-SEVERITY: Critical=SQLi+RCE+auth_bypass | High=StoredXSS+SSRF+IDOR+default_creds | Medium=ReflectedXSS+CSRF+open_redirect+CORS | Low=self_XSS+verbose_errors | Info=version_disclosure
+FINDING TYPES: sql_injection | command_injection | xss_reflected | xss_stored | path_traversal | idor | ssrf | csrf | open_redirect | cors_misconfiguration | auth_misconfiguration | missing_security_header | information_disclosure | insecure_cookie | web_vulnerability (generic fallback only — use the most specific type above whenever it applies)
+Pick the `type` argument to report_finding() carefully — it drives the CVSS score and severity shown in the report, not the `severity` argument you also supply. Set `severity` to your own best assessment; it will be checked against the calculated CVSS severity for this type.
 EVIDENCE fields (all required): url, method, request, response, curl_poc, parameter"""
+
+# Used for single-vulnerability-type focus scans (scan_mode == "single"). A
+# broad, all-categories methodology plus a "focus on X" hint still leaves the
+# agent free to sample broadly and stop after one confirmed instance — this
+# methodology instead makes exhaustive coverage of the requested category(ies)
+# the explicit, only goal, so a request like "find all SQL Injection" doesn't
+# stop at the first hit while sibling forms on the same site go untested.
+_FOCUSED_METHODOLOGY = """
+TESTING PHASES (single-vulnerability focus mode):
+1. FINGERPRINT: GET target and follow links/forms → build a complete inventory of every page,
+   form field, and URL query parameter you can reach. This inventory is what you must exhaustively
+   test in step 3 — incomplete enumeration here means missed findings later.
+2. Optionally run_nuclei/run_zap ONLY if it helps you discover MORE input surface (e.g. spider for
+   hidden pages/forms). Do not spend iterations on unrelated template/passive-scan categories.
+3. MANUAL TESTING — test EVERY input found in step 1 against the requested categories below.
+   Report EVERY distinct instance you confirm (different endpoint or different parameter = a
+   separate finding) — do not stop after the first confirmed instance:
+   XSS:              inject <script>alert(1)</script> into visible params — confirm unencoded reflection
+   SQLi:             inject ' OR '1'='1 and 1' AND SLEEP(3)-- — confirm error/boolean diff/time delay
+   Command inject:   ;id |whoami in server-side params
+   Path traversal:   /../../../etc/passwd in file path params
+   IDOR:             try adjacent numeric IDs if seen in URLs
+   Forced browsing:  /admin /dashboard /config /backup /.git/config
+   Default creds:    admin/admin admin/password (login forms only)
+   CSRF:             check POST forms for CSRF token presence and validation
+   SSRF:             http://169.254.169.254/latest/meta-data/ in URL params
+   CORS:             Origin: https://evil.com → check Access-Control-Allow-Origin
+   Open redirect:    ?next= ?url= ?redirect= → https://evil.com — confirm 3xx to external domain
+
+FINDING TYPES: sql_injection | command_injection | xss_reflected | xss_stored | path_traversal | idor | ssrf | csrf | open_redirect | cors_misconfiguration | auth_misconfiguration | information_disclosure | web_vulnerability (generic fallback only)
+Pick the `type` argument to report_finding() carefully — it drives the CVSS score and severity shown in the report.
+EVIDENCE fields (all required): url, method, request, response, curl_poc, parameter
+Only call done() once every input from step 1 has been tested against the requested categories,
+or you are down to your last couple of iterations."""
 
 # ── Agent class ────────────────────────────────────────────────────────────────
 
@@ -68,23 +102,40 @@ class WebAgent:
         self.scope = scope
 
     def run(self, target: str, config=None, checklist_items=None, tool_filter=None,
-            session_id: str = None) -> dict:
+            session_id: str = None, scan_mode: str = "full") -> dict:
         scope    = self.scope or _host_from_url(target)
         registry = build_registry(http_request, run_nuclei, run_zap, report_finding)
         if tool_filter:
             keep     = set(tool_filter) | {"report_finding"}
             registry = {k: v for k, v in registry.items() if k in keep}
 
+        # "single" mode means the analyst asked for exhaustive coverage of one
+        # or a few specific vulnerability categories, not a broad sweep — use
+        # the focused methodology so the agent doesn't sample broadly and stop
+        # after the first confirmed instance.
+        focused = scan_mode == "single" and bool(checklist_items)
+
         extra_context = ""
         if checklist_items:
             names = [getattr(t, "canonical_name", str(t)) for t in checklist_items]
-            extra_context = f"\nFocus on these test categories: {', '.join(names)}"
+            if focused:
+                joined = ", ".join(names)
+                extra_context = (
+                    f"\nSINGLE-VULNERABILITY FOCUS MODE — you are testing ONLY for: {joined}\n"
+                    f"This is not a general assessment. Find and test every input surface on "
+                    f"the target for {joined} specifically before calling done()."
+                )
+            else:
+                extra_context = f"\nFocus on these test categories: {', '.join(names)}"
+
+        iter_env = "WEB_SINGLE_MODE_MAX_ITERATIONS" if focused else "WEB_MAX_ITERATIONS"
+        iter_default = "35" if focused else "20"
 
         agent = BaseAgent(
             llm            = self.llm,
             tool_registry  = registry,
             system_prompt  = _SYSTEM_PROMPT,
-            max_iterations = int(os.getenv("WEB_MAX_ITERATIONS", "20")),
+            max_iterations = int(os.getenv(iter_env, iter_default)),
             scope          = scope,
             auth_headers   = config.build_auth_headers() if config else None,
             session_id     = session_id,
@@ -95,7 +146,7 @@ class WebAgent:
             f"Perform web application security testing on: {target}\n"
             f"Auth: {config.build_auth_summary() if config else 'Unauthenticated'}"
             f"{extra_context}"
-            f"{_METHODOLOGY}"
+            f"{_FOCUSED_METHODOLOGY if focused else _METHODOLOGY}"
         )
 
         start  = datetime.utcnow()
@@ -169,9 +220,26 @@ def _normalise_findings(findings: list, target: str) -> list:
 
 def _infer_type(name: str) -> str:
     n = name.lower()
-    if any(k in n for k in ("xss", "cross-site scripting", "injection", "sqli",
-                             "ssrf", "command", "redirect", "csrf", "cors")):
-        return "web_vulnerability"
+    if any(k in n for k in ("sqli", "sql injection", "sql-injection")):
+        return "sql_injection"
+    if any(k in n for k in ("command injection", "os command", "shell injection", "rce")):
+        return "command_injection"
+    if "traversal" in n or "../" in n or "directory traversal" in n:
+        return "path_traversal"
+    if "idor" in n or "insecure direct object" in n:
+        return "idor"
+    if "ssrf" in n or "server-side request forgery" in n:
+        return "ssrf"
+    if "csrf" in n or "cross-site request forgery" in n:
+        return "csrf"
+    if "open redirect" in n or "unvalidated redirect" in n:
+        return "open_redirect"
+    if "cors" in n:
+        return "cors_misconfiguration"
+    if "stored xss" in n or "persistent xss" in n:
+        return "xss_stored"
+    if "xss" in n or "cross-site scripting" in n:
+        return "xss_reflected"
     if any(k in n for k in ("auth", "login", "password", "credential",
                              "session", "lockout", "brute")):
         return "auth_misconfiguration"

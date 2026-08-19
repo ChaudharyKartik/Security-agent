@@ -17,12 +17,31 @@ COMPLIANCE_MAP = {
     "missing_security_header":  ["OWASP A05:2021", "PCI-DSS 6.2"],
     "insecure_cookie":          ["OWASP A02:2021", "PCI-DSS 6.2"],
     "web_vulnerability":        ["OWASP Top 10",   "NIST SP 800-53 SI-10"],
+    "sql_injection":            ["OWASP A03:2021-Injection", "PCI-DSS 6.5.1"],
+    "command_injection":        ["OWASP A03:2021-Injection", "PCI-DSS 6.5.1"],
+    "xss_reflected":            ["OWASP A03:2021-Injection", "PCI-DSS 6.5.7"],
+    "xss_stored":               ["OWASP A03:2021-Injection", "PCI-DSS 6.5.7"],
+    "path_traversal":           ["OWASP A01:2021", "PCI-DSS 6.5.8"],
+    "idor":                     ["OWASP A01:2021", "PCI-DSS 6.5.8"],
+    "ssrf":                     ["OWASP A10:2021", "PCI-DSS 6.5.10"],
+    "csrf":                     ["OWASP A01:2021", "PCI-DSS 6.5.9"],
+    "open_redirect":            ["OWASP A01:2021", "PCI-DSS 6.5.1"],
+    "cors_misconfiguration":    ["OWASP A05:2021", "PCI-DSS 6.5.10"],
     "open_port":                ["CIS Controls 4.4","NIST SP 800-53 CM-7"],
     "vulnerable_version":       ["CVE Program",    "NIST SP 800-53 SI-2"],
     "auth_misconfiguration":    ["OWASP A07:2021", "CIS Controls 5.2"],
     "cloud_misconfiguration":   ["CIS AWS Benchmark","NIST CSF PR.AC"],
     "information_disclosure":   ["OWASP A05:2021", "PCI-DSS 6.5"],
     "ssl_error":                ["OWASP A02:2021", "PCI-DSS 4.1"],
+}
+
+# Vulnerability types that behave like "web_vulnerability" for everything except
+# CVSS scoring — dedup keying, reproduction steps, exploitation narrative, and
+# the analyst note all use the same generic web-vuln handling for these.
+WEB_VULN_TYPES = {
+    "web_vulnerability", "sql_injection", "command_injection",
+    "xss_reflected", "xss_stored", "path_traversal", "idor",
+    "ssrf", "csrf", "open_redirect", "cors_misconfiguration",
 }
 
 SEVERITY_ORDER = {"Critical":0,"High":1,"Medium":2,"Low":3,"Info":4}
@@ -73,15 +92,13 @@ def _enrich_single(finding: dict, module_name: str, target: str, tool_used: str)
         except Exception:
             pass
 
-    severity = cvss_result["severity"]
-    # Normalise CVSS severity to canonical set (collapse "Informational" → "Info")
-    severity = _normalize_severity(severity)
-
-    # Re-check: if the finding itself already carries a higher risk signal, bump up
-    raw_risk   = finding.get("risk", "Info")
-    stated_sev = _normalize_severity(raw_risk)
-    if SEVERITY_ORDER.get(stated_sev, 99) < SEVERITY_ORDER.get(severity, 99):
-        severity = stated_sev  # keep the higher (lower order number = higher severity)
+    # Severity is derived solely from the calculated CVSS score so the label
+    # and the score shown in the report always agree. The agent's own
+    # "severity" assessment (finding["risk"]) is kept on the record for
+    # reference but never overrides this — letting it override without also
+    # adjusting cvss_score/cvss_vector is what caused labels like "Critical"
+    # to be shown next to a Medium-range score.
+    severity = _normalize_severity(cvss_result["severity"])
 
     # ── Confidence scoring (heuristic — Phase 2) ──────────────────────────────
     confidence = _calculate_confidence(finding, tool_used, cvss_result)
@@ -94,6 +111,7 @@ def _enrich_single(finding: dict, module_name: str, target: str, tool_used: str)
         "tool_used":           tool_used,
         "target":              target,
         "severity":            severity,
+        "llm_assessed_severity": _normalize_severity(finding.get("risk", "Info")),
         "checklist_id":        finding.get("checklist_id"),
         "session_id":          finding.get("session_id"),   # injected by orchestrator
 
@@ -298,7 +316,7 @@ def _generate_id(finding: dict, module: str) -> str:
     # 50 different pages becomes ONE finding, not 50.
     # SQLi on ?user= and SQLi on ?pass= remain separate (different param).
     param = ""
-    if ftype == "web_vulnerability":
+    if ftype in WEB_VULN_TYPES:
         param = finding.get("param", "")
         try:
             p = urlparse(raw)
@@ -339,7 +357,7 @@ def _generate_reproduction_steps(finding: dict, ftype: str, target: str) -> list
     except Exception:
         host = target
 
-    if ftype == "web_vulnerability":
+    if ftype in WEB_VULN_TYPES:
         steps = [
             f"Open a browser and navigate to: {url}",
         ]
@@ -564,13 +582,17 @@ def _build_exploitation_narrative(finding: dict, severity: str, ftype: str, targ
         ),
     }
 
-    return narratives.get(ftype, (
+    if ftype in narratives:
+        return narratives[ftype]
+    if ftype in WEB_VULN_TYPES:
+        return narratives["web_vulnerability"]
+    return (
         f"**Step 1:** Attacker identifies '{name}' during reconnaissance of {target}.\n"
         f"**Step 2:** The vulnerability is confirmed and an appropriate exploit is selected.\n"
         f"**Step 3:** Exploitation proceeds based on the vulnerability characteristics. "
         f"Severity: {severity}.\n"
         f"**Business Impact:** Manual assessment required to determine full impact chain."
-    ))
+    )
 
 
 def _generate_analyst_note(finding: dict, severity: str, module: str) -> str:
@@ -587,4 +609,8 @@ def _generate_analyst_note(finding: dict, severity: str, module: str) -> str:
         "vulnerable_version":    f"Vulnerable version: {name}. CVE: {finding.get('cve','?')}. Patch immediately.",
         "information_disclosure":f"Info disclosure: {name}. Low rated but enables targeted attacks.",
     }
-    return notes.get(ftype, f"Finding: '{name}' via {module} module. Severity: {severity}. Manual review needed.")
+    if ftype in notes:
+        return notes[ftype]
+    if ftype in WEB_VULN_TYPES:
+        return notes["web_vulnerability"]
+    return f"Finding: '{name}' via {module} module. Severity: {severity}. Manual review needed."
