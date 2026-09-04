@@ -507,9 +507,19 @@ def get_review_queue(session_id: str, db: Session = Depends(get_db)):
     s = _get_session_dict(session_id, db)
     queue = s.get("review_queue")
     if not queue:
-        # Build on-demand if the session pre-dates the reviewer agent
+        # Build on-demand if the session pre-dates review-queue persistence.
+        # This makes a real LLM call per Critical/High finding to generate
+        # its brief, so persist the result immediately — otherwise every
+        # subsequent page load repeats all those calls (slow, wasteful, and
+        # non-deterministic, since a regenerated brief can read differently).
         findings = s.get("enriched_findings", [])
         queue    = _reviewer.build_review_queue(findings)
+        if session_id in sessions:
+            sessions[session_id]["review_queue"] = queue
+        try:
+            crud.save_review_queue(db, session_id, queue)
+        except Exception as e:
+            logger.warning(f"[REVIEW] Failed to persist on-demand queue build: {e}")
     return queue
 
 
@@ -548,10 +558,14 @@ def submit_review(session_id: str, req: ReviewSubmission,
         sessions[session_id]["review_queue"]      = queue
         sessions[session_id]["status"]            = new_status
 
-    # Persist to DB
+    # Persist to DB — including the refreshed queue itself, not just the
+    # findings, so a session rebuilt from the DB later (restart, or simply
+    # falling out of the in-memory cache) restores this exact queue instead
+    # of falling back to a from-scratch rebuild with no review history.
     try:
         crud.update_session_status(db, session_id, new_status)
         crud.save_findings(db, session_id, updated)
+        crud.save_review_queue(db, session_id, queue)
     except Exception as e:
         logger.warning(f"[REVIEW] DB persist failed: {e}")
 

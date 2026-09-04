@@ -18,6 +18,8 @@ import logging
 import json
 from typing import Optional
 
+from cvss import clamp_score_to_severity
+
 logger = logging.getLogger(__name__)
 
 REVIEW_SEVERITIES = {"Critical", "High"}
@@ -58,7 +60,14 @@ class ReviewerAgent:
         auto_suppressed = 0
 
         for f in findings:
-            fp_status = f.get("fp_status", "uncertain")
+            # `or "uncertain"` (not `.get(..., "uncertain")`) — a freshly
+            # enriched finding never has this key at all, so the default
+            # fires correctly. But a finding that's round-tripped through the
+            # DB always has the key present with value None (finding_to_dict
+            # sets it explicitly), which .get()'s default does NOT catch —
+            # silently excluding every non-Critical/High finding with no
+            # recorded fp_status from the queue after any DB rebuild.
+            fp_status = f.get("fp_status") or "uncertain"
             severity  = f.get("severity", "Info")
 
             if fp_status == "likely_false_positive":
@@ -113,9 +122,29 @@ class ReviewerAgent:
         }
 
     def refresh_progress(self, queue: dict, findings: list) -> dict:
+        """
+        Refresh both the aggregate counts AND each item's own review_status/
+        severity/cvss_score from its matching finding. Previously only the
+        aggregate counts were refreshed here — individual items stayed frozen
+        at "pending" forever (even within one uninterrupted session), so the
+        queue UI never actually showed a finding as decided.
+        """
+        findings_by_id = {f.get("id"): f for f in findings if f.get("id")}
+        items = []
+        for item in queue.get("items", []):
+            f = findings_by_id.get(item.get("finding_id"))
+            if f:
+                item = {
+                    **item,
+                    "review_status": f.get("review_status", item.get("review_status", "pending")),
+                    "severity":      f.get("severity", item.get("severity")),
+                    "cvss_score":    f.get("cvss_score", item.get("cvss_score")),
+                }
+            items.append(item)
+
         reviewed = sum(1 for f in findings if f.get("reviewed"))
         pending  = max(0, queue.get("needs_review", 0) - reviewed)
-        return {**queue, "reviewed": reviewed, "pending": pending,
+        return {**queue, "items": items, "reviewed": reviewed, "pending": pending,
                 "complete": pending == 0}
 
     # ── LLM brief generation ───────────────────────────────────────────────────
@@ -191,7 +220,10 @@ class ReviewerAgent:
             f["reviewed"]       = True
 
             if action == "false_positive":
+                if "original_cvss_score" not in f:
+                    f["original_cvss_score"] = f.get("cvss_score")
                 f["severity"]          = "Info"
+                f["cvss_score"]        = clamp_score_to_severity(f.get("cvss_score"), "Info")
                 f["validation_status"] = "rejected"
                 f["fp_status"]         = "confirmed_false_positive"
                 f["false_positive"]    = True
@@ -199,7 +231,10 @@ class ReviewerAgent:
             elif action in ("downgrade", "escalate"):
                 new_sev = d.get("new_severity", "")
                 if new_sev in _SEV_ORDER:
-                    f["severity"] = new_sev
+                    if "original_cvss_score" not in f:
+                        f["original_cvss_score"] = f.get("cvss_score")
+                    f["severity"]   = new_sev
+                    f["cvss_score"] = clamp_score_to_severity(f.get("cvss_score"), new_sev)
                 else:
                     logger.warning(f"[REVIEWER] {action} for {fid}: "
                                    f"invalid new_severity '{new_sev}'")

@@ -58,6 +58,13 @@ class ScanSession(Base):
     duration_seconds = Column(Float,       nullable=True)
     summary          = Column(JSONText,    nullable=True)    # dict
     execution_plan   = Column(JSONText,    nullable=True)    # dict
+    review_queue     = Column(JSONText,    nullable=True)    # dict — persisted so a
+    # session rebuilt from the DB (after a restart, or simply not held in the
+    # in-memory sessions cache) restores the SAME queue — including each
+    # item's up-to-date review_status and its LLM-generated brief — instead of
+    # falling back to a from-scratch rebuild that has no memory of what was
+    # already reviewed and re-derives membership from findings' CURRENT
+    # severity (silently dropping anything downgraded below Critical/High).
 
     # Relationships
     findings   = relationship("ScanFinding",       back_populates="session",

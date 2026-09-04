@@ -73,9 +73,24 @@ def finalise_session(db: Session, session_dict: dict) -> None:
     obj.duration_seconds = session_dict.get("duration_seconds")
     obj.summary          = session_dict.get("summary", {})
     obj.execution_plan   = session_dict.get("execution_plan", {})
+    obj.review_queue     = session_dict.get("review_queue", {})
     obj.error            = session_dict.get("error")
     db.commit()
     logger.info(f"[DB] Session finalised: {obj.id} | status={obj.status}")
+
+
+def save_review_queue(db: Session, session_id: str, review_queue: dict) -> None:
+    """
+    Persist the review queue on its own — called every time submit_review()
+    updates it, not just once at scan end (finalise_session runs only when
+    the whole scan finishes; review decisions come in afterward, separately).
+    """
+    obj = db.query(ScanSession).filter(ScanSession.id == session_id).first()
+    if not obj:
+        logger.warning(f"[DB] save_review_queue: {session_id} not found")
+        return
+    obj.review_queue = review_queue
+    db.commit()
 
 
 # ── Agent iteration log ───────────────────────────────────────────────────────
@@ -184,6 +199,11 @@ def _build_finding(f: dict, session_id: str,
         validated_at           = validated_at,
         false_positive         = f.get("false_positive", False),
         enriched_at            = enriched_at,
+        # Human review (Phase 6)
+        review_brief           = f.get("review_brief"),
+        reviewer                = f.get("reviewer"),
+        reviewer_notes          = f.get("reviewer_notes"),
+        reviewed                = f.get("reviewed", False),
     )
 
 
@@ -210,6 +230,13 @@ def _update_finding(obj: ScanFinding, f: dict, session_id: str,
     obj.validated_by           = f.get("validated_by", obj.validated_by)
     obj.validated_at           = validated_at or obj.validated_at
     obj.false_positive         = f.get("false_positive", obj.false_positive)
+    # Human review (Phase 6) — previously silently dropped on every save,
+    # which made a finding's review status invisible after any session
+    # rebuild even though the decision had genuinely been applied.
+    obj.review_brief           = f.get("review_brief", obj.review_brief)
+    obj.reviewer                = f.get("reviewer", obj.reviewer)
+    obj.reviewer_notes          = f.get("reviewer_notes", obj.reviewer_notes)
+    obj.reviewed                = f.get("reviewed", obj.reviewed)
 
 
 def get_findings(db: Session, session_id: str,
@@ -316,6 +343,7 @@ def session_to_dict(obj: ScanSession) -> dict:
         "duration_seconds":  obj.duration_seconds,
         "summary":           obj.summary or {},
         "execution_plan":    obj.execution_plan or {},
+        "review_queue":      obj.review_queue or {},
         "enriched_findings": [],  # populated separately by get_findings()
         "agents_executed":   (obj.summary or {}).get("agents_run", []),
         "raw_results":       {},  # raw results not persisted (too large)
@@ -368,4 +396,9 @@ def finding_to_dict(obj: ScanFinding) -> dict:
         "validated_at":          obj.validated_at.isoformat() if obj.validated_at else None,
         "false_positive":        obj.false_positive,
         "enriched_at":           obj.enriched_at.isoformat() if obj.enriched_at else None,
+        # Human review (Phase 6)
+        "review_brief":          obj.review_brief or {},
+        "reviewer":              obj.reviewer,
+        "reviewer_notes":        obj.reviewer_notes,
+        "reviewed":              obj.reviewed or False,
     }
