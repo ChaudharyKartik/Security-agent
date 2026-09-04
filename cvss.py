@@ -275,6 +275,32 @@ def _score_to_severity(score: float) -> str:
     return "Critical"
 
 
+SEVERITY_BANDS = {
+    "Info":     (0.0, 0.0),
+    "Low":      (0.1, 3.9),
+    "Medium":   (4.0, 6.9),
+    "High":     (7.0, 8.9),
+    "Critical": (9.0, 10.0),
+}
+
+
+def clamp_score_to_severity(score: float, severity: str) -> float:
+    """
+    Clamp a CVSS score into the numeric band for `severity` — the minimum
+    change needed to make the displayed label and score agree.
+
+    Used when an analyst manually overrides a finding's severity (downgrade/
+    escalate during review). Without this, the score would still reflect the
+    original calculated band, reproducing the same label/score mismatch bug
+    that was fixed for AI-assigned severity (see enrichment.py) — except this
+    time introduced by the human override instead of the LLM's.
+    """
+    lo, hi = SEVERITY_BANDS.get(severity, (0.0, 10.0))
+    if score is None:
+        return lo
+    return round(min(max(score, lo), hi), 1)
+
+
 def _build_vector(m: CVSSMetrics) -> str:
     return (
         f"CVSS:3.1/AV:{m.attack_vector}/AC:{m.attack_complexity}"

@@ -130,15 +130,21 @@ class Orchestrator:
             if scan_mode == "single":
                 recon_result = {**recon_result, "findings": []}
             all_results = [recon_result] + module_results
-            session["enriched_findings"] = enrich_findings(all_results)
+            session["enriched_findings"] = enrich_findings(all_results, session_id)
 
             # ── Phase 5: Reviewer Agent — build human review queue ────────────
-            _set("awaiting_validation")
+            # Compute review_queue and summary BEFORE flipping status to
+            # "awaiting_validation" — build_review_queue() makes a per-finding
+            # LLM call for each queued item, which can take a while. A status
+            # poll landing between the old status-flip and this point would
+            # otherwise see status="awaiting_validation" with summary still {}
+            # (the initial empty value), rendering an all-zero severity
+            # breakdown even though the findings themselves are already saved.
             session["review_queue"] = _reviewer_agent.build_review_queue(
                 session["enriched_findings"]
             )
-
             session["summary"] = self._build_summary(session["enriched_findings"], session)
+            _set("awaiting_validation")
 
             # ── Phase 7: Report Agent — generate draft narrative ───────────────
             session["report_narrative"] = _report_agent.draft(session)
@@ -348,11 +354,13 @@ class Orchestrator:
             module_results = self._dispatch_agents(target, recon, agent_groups, session, tool_filter)
 
             _set("enrichment")
-            session["enriched_findings"] = enrich_findings(module_results)
+            session["enriched_findings"] = enrich_findings(module_results, session_id)
 
-            _set("awaiting_validation")
+            # Compute review_queue and summary before flipping status — see the
+            # matching comment in run() for why the ordering matters.
             session["review_queue"] = _reviewer_agent.build_review_queue(session["enriched_findings"])
             session["summary"]      = self._build_summary(session["enriched_findings"], session)
+            _set("awaiting_validation")
             session["report_narrative"] = _report_agent.draft(session)
 
         except Exception as e:

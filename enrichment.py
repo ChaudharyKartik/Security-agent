@@ -49,7 +49,7 @@ SEVERITY_ORDER = {"Critical":0,"High":1,"Medium":2,"Low":3,"Info":4}
 # to "Info" before any sort/count, so we never have a duplicate key ambiguity.
 
 
-def enrich_findings(all_module_results: list) -> list:
+def enrich_findings(all_module_results: list, session_id: str = None) -> list:
     logger.info("[ENRICHMENT] Starting enrichment...")
     enriched, seen = [], set()
 
@@ -61,7 +61,7 @@ def enrich_findings(all_module_results: list) -> list:
         logger.info(f"[ENRICHMENT] {module_name}: {len(raw_findings)} raw findings")
         for finding in raw_findings:
             try:
-                ef = _enrich_single(finding, module_name, target, tool_used)
+                ef = _enrich_single(finding, module_name, target, tool_used, session_id)
                 if ef["id"] not in seen:
                     seen.add(ef["id"])
                     enriched.append(ef)
@@ -76,7 +76,8 @@ def enrich_findings(all_module_results: list) -> list:
     return enriched
 
 
-def _enrich_single(finding: dict, module_name: str, target: str, tool_used: str) -> dict:
+def _enrich_single(finding: dict, module_name: str, target: str, tool_used: str,
+                   session_id: str = None) -> dict:
     ftype = finding.get("type", "unknown")
 
     # ── Real CVSS 3.1 calculation ─────────────────────────────────────────────
@@ -104,7 +105,7 @@ def _enrich_single(finding: dict, module_name: str, target: str, tool_used: str)
     confidence = _calculate_confidence(finding, tool_used, cvss_result)
 
     return {
-        "id":                  _generate_id(finding, module_name),
+        "id":                  _generate_id(finding, module_name, session_id),
         "name":                finding.get("name", _infer_name(finding)),
         "type":                ftype,
         "module":              module_name,
@@ -113,7 +114,7 @@ def _enrich_single(finding: dict, module_name: str, target: str, tool_used: str)
         "severity":            severity,
         "llm_assessed_severity": _normalize_severity(finding.get("risk", "Info")),
         "checklist_id":        finding.get("checklist_id"),
-        "session_id":          finding.get("session_id"),   # injected by orchestrator
+        "session_id":          session_id,
 
         # Real CVSS 3.1
         "cvss_score":           cvss_result["score"],
@@ -192,7 +193,7 @@ def _calculate_confidence(finding: dict, tool_used: str, cvss_result: dict) -> f
     # Evidence completeness
     has_request  = bool(evidence.get("request") or evidence.get("raw_request"))
     has_response = bool(evidence.get("response_snippet") or evidence.get("response_headers")
-                        or evidence.get("raw_response"))
+                        or evidence.get("raw_response") or evidence.get("response"))
     if has_request and has_response:
         score += 0.20
     elif has_request or has_response:
@@ -291,7 +292,13 @@ def _build_severity_description(finding: dict, severity: str, cvss_metrics: dict
     )
 
 
-def _generate_id(finding: dict, module: str) -> str:
+def _generate_id(finding: dict, module: str, session_id: str = None) -> str:
+    """
+    Scoped to session_id so the same real-world vulnerability rediscovered in a
+    later scan gets a distinct ID instead of colliding with (and silently
+    reassigning) an earlier session's finding row — save_findings() upserts by
+    ID with no session filter, so a collision here previously stole the row.
+    """
     from urllib.parse import urlparse
 
     name  = finding.get("name", "")
@@ -324,7 +331,7 @@ def _generate_id(finding: dict, module: str) -> str:
         except Exception:
             pass
 
-    key = f"{module}_{name}_{url}_{param}"
+    key = f"{session_id}_{module}_{name}_{url}_{param}"
     return "FIND-" + hashlib.md5(key.encode()).hexdigest()[:8].upper()
 
 

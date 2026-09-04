@@ -53,7 +53,7 @@ TESTING PHASES:
 
 FINDING TYPES: sql_injection | command_injection | xss_reflected | xss_stored | path_traversal | idor | ssrf | csrf | open_redirect | cors_misconfiguration | auth_misconfiguration | missing_security_header | information_disclosure | insecure_cookie | web_vulnerability (generic fallback only — use the most specific type above whenever it applies)
 Pick the `type` argument to report_finding() carefully — it drives the CVSS score and severity shown in the report, not the `severity` argument you also supply. Set `severity` to your own best assessment; it will be checked against the calculated CVSS severity for this type.
-EVIDENCE fields (all required): url, method, request, response, curl_poc, parameter"""
+EVIDENCE fields (all required): url, method, request, response_header, response_snippet, curl_poc, parameter"""
 
 # Used for single-vulnerability-type focus scans (scan_mode == "single"). A
 # broad, all-categories methodology plus a "focus on X" hint still leaves the
@@ -85,7 +85,7 @@ TESTING PHASES (single-vulnerability focus mode):
 
 FINDING TYPES: sql_injection | command_injection | xss_reflected | xss_stored | path_traversal | idor | ssrf | csrf | open_redirect | cors_misconfiguration | auth_misconfiguration | information_disclosure | web_vulnerability (generic fallback only)
 Pick the `type` argument to report_finding() carefully — it drives the CVSS score and severity shown in the report.
-EVIDENCE fields (all required): url, method, request, response, curl_poc, parameter
+EVIDENCE fields (all required): url, method, request, response_header, response_snippet, curl_poc, parameter
 Only call done() once every input from step 1 has been tested against the requested categories,
 or you are down to your last couple of iterations."""
 
