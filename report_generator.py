@@ -3,6 +3,7 @@ Report Generator — JSON, HTML, PDF, CSV
 All formats include PoC evidence, exploitation narratives, real CVSS scores.
 """
 import json
+import math
 import os
 import csv
 import logging
@@ -15,6 +16,22 @@ REPORTS_DIR = "reports"
 
 SEV_COLORS = {"Critical":"#dc2626","High":"#ea580c","Medium":"#d97706","Low":"#2563eb","Info":"#6b7280"}
 STATUS_COLORS = {"approve":"#16a34a","reject":"#dc2626","escalate":"#9333ea","pending":"#6b7280"}
+
+
+def _evidence_response(ev: dict) -> tuple:
+    """
+    Return (response_header, response_body) from an evidence dict.
+    Agents are instructed to populate response_header/response_snippet
+    separately, but some LLM output collapses both into a single
+    `response` field instead — fall back to treating that as the body
+    so evidence already stored in that shape still renders instead of
+    showing nothing.
+    """
+    hdr  = ev.get("response_header", "") or ""
+    body = ev.get("response_snippet", "") or ""
+    if not hdr and not body:
+        body = ev.get("response", "") or ""
+    return hdr, body
 
 
 def generate_report(session: dict, format: str = "json") -> list:
@@ -78,8 +95,7 @@ def _gen_csv(session: dict, base: str) -> str:
             row["compliance"] = " | ".join(finding.get("compliance",[]))
             ev = finding.get("evidence") or {}
             row["evidence_request"]  = ev.get("request") or ev.get("request_header","")
-            resp_hdr  = ev.get("response_header","")
-            resp_body = ev.get("response_snippet","")
+            resp_hdr, resp_body = _evidence_response(ev)
             row["evidence_response"] = (resp_hdr + "\r\n\r\n" + resp_body).strip() if (resp_hdr or resp_body) else ""
             w.writerow(row)
 
@@ -246,8 +262,7 @@ def _gen_pdf(session: dict, base: str) -> str:
             # PoC Evidence — HTTP request / response blocks
             ev = f.get("evidence") or {}
             req_block = ev.get("request") or ev.get("request_header", "")
-            resp_hdr  = ev.get("response_header", "")
-            resp_body = ev.get("response_snippet", "")
+            resp_hdr, resp_body = _evidence_response(ev)
             if req_block:
                 pdf.set_font("Courier", "B", 8)
                 pdf.set_text_color(99, 102, 241)
@@ -344,8 +359,7 @@ def _gen_html(session: dict, base: str) -> str:
         sc     = STATUS_COLORS.get(status,"#6b7280")
         ev         = f.get("evidence",{}) or {}
         req_block  = ev.get("request") or ev.get("request_header","")
-        resp_hdr   = ev.get("response_header","")
-        resp_body  = ev.get("response_snippet","")
+        resp_hdr, resp_body = _evidence_response(ev)
         match_str  = ev.get("evidence","")
         import re
         raw_narr = f.get("exploitation_narrative","") or ""
@@ -584,6 +598,32 @@ pre{{white-space:pre-wrap;word-break:break-all}}
 # ══════════════════════════════════════════════════════════════════════════════
 # PROFESSIONAL PDF  (industry pentest report style — mirrors sample structure)
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _draw_pie_chart(pdf, data: dict, colors: dict, cx: float, cy: float, radius: float):
+    """
+    Draw a pie chart using filled polygon wedges — fpdf2 has no chart primitive,
+    but polygon() + basic trig is enough for a fixed-size severity breakdown
+    with no new dependency (matplotlib, etc.).
+    `data`: {label: count}. Zero-count labels are skipped.
+    """
+    total = sum(v for v in data.values() if v)
+    if total <= 0:
+        return
+    start_angle = -90.0   # 12 o'clock, sweeping clockwise
+    for label, count in data.items():
+        if not count:
+            continue
+        sweep = 360.0 * count / total
+        steps = max(2, int(sweep / 4) + 1)   # arc resolution
+        points = [(cx, cy)]
+        for i in range(steps + 1):
+            a = math.radians(start_angle + sweep * i / steps)
+            points.append((cx + radius * math.cos(a), cy + radius * math.sin(a)))
+        pdf.set_fill_color(*colors.get(label, (150, 150, 150)))
+        pdf.set_draw_color(255, 255, 255)
+        pdf.polygon(points, style="DF")
+        start_angle += sweep
+
 
 def _gen_professional_pdf(session: dict, base: str) -> str:
     path = base + "_professional.pdf"
@@ -920,15 +960,63 @@ def _gen_professional_pdf(session: dict, base: str) -> str:
         pdf.set_font("Helvetica", "B", 10)
         pdf.cell(0, 6, f"  {val}", 1, 1, "L", True)
 
+    # Classification of Vulnerabilities — pie chart
+    if total_f > 0:
+        _chart_height = 62
+        if pdf.get_y() + _chart_height > pdf.page_break_trigger:
+            pdf.add_page()
+        pdf.ln(8)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(20, 30, 60)
+        pdf.cell(0, 8, "Classification of Vulnerabilities", 0, 1)
+
+        chart_y = pdf.get_y()
+        cx, cy, radius = 45, chart_y + 25, 22
+        _draw_pie_chart(pdf, bd, SEV_RGB, cx, cy, radius)
+
+        # Legend — percentage per severity, to the right of the chart
+        pdf.set_xy(85, chart_y + 4)
+        pdf.set_font("Helvetica", "", 10)
+        for sev in ("Critical", "High", "Medium", "Low", "Info"):
+            n = bd.get(sev, 0)
+            if not n:
+                continue
+            pct = round(100 * n / total_f)
+            pdf.set_x(85)
+            pdf.set_fill_color(*SEV_RGB.get(sev, (150, 150, 150)))
+            pdf.rect(85, pdf.get_y() + 1, 4, 4, "F")
+            pdf.set_text_color(51, 65, 85)
+            pdf.set_x(91)
+            pdf.cell(0, 6, f"{sev}: {n} ({pct}%)", 0, 1)
+
+        pdf.set_y(chart_y + _chart_height)
+
     # ── Section 2: Vulnerabilities Description ────────────────────────────────
     pdf.add_page()
     _section_title("2.  Vulnerabilities Description")
 
+    _prev_sev = None
     for idx, f in enumerate(findings, 1):
         try:
             sev  = f.get("severity", "Info")
             srgb = SEV_RGB.get(sev, (90, 100, 115))
             name = _s(f.get("name", "Unknown"), 85)
+
+            # Severity-tier banner — findings arrive pre-sorted by severity
+            # (enrichment.py), so a change in `sev` marks the start of a new tier.
+            if sev != _prev_sev:
+                _banner_height = 14
+                if pdf.get_y() + _banner_height > pdf.page_break_trigger:
+                    pdf.add_page()
+                pdf.ln(3)
+                pdf.set_fill_color(*srgb)
+                pdf.set_text_color(255, 255, 255)
+                pdf.set_font("Helvetica", "B", 12)
+                _tier_label = "Informational" if sev == "Info" else sev
+                pdf.cell(0, 10, f"{_tier_label} Severity Vulnerabilities", 0, 1, "C", True)
+                pdf.ln(3)
+                pdf.set_text_color(15, 23, 60)
+                _prev_sev = sev
 
             # Finding header bar
             pdf.set_fill_color(*srgb)
@@ -1010,8 +1098,7 @@ def _gen_professional_pdf(session: dict, base: str) -> str:
             ev       = f.get("evidence", {}) or {}
             repro    = f.get("reproduction_steps", [])
             req_blk  = ev.get("request") or ev.get("request_header", "")
-            resp_hdr = ev.get("response_header", "")
-            resp_bdy = ev.get("response_snippet", "")
+            resp_hdr, resp_bdy = _evidence_response(ev)
             param    = ev.get("param") or f.get("param", "")
             attack   = ev.get("attack") or f.get("attack", "")
             match_s  = ev.get("evidence", "")
@@ -1118,6 +1205,83 @@ def _gen_professional_pdf(session: dict, base: str) -> str:
         "  Informational: 0.0",
         2000
     )
+
+    # Risk Rating definitions — what the Risk value shown per-finding means
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(20, 30, 60)
+    pdf.cell(0, 8, "Risk Rating Definitions", 0, 1)
+    _risk_defs = [
+        ("Critical", "An immediate, easily accessible threat of total compromise of the application or its data."),
+        ("High", "An immediate threat of significant compromise, or an easily accessible threat of large-scale impact."),
+        ("Medium", "A threat that requires more effort to exploit, or compromises only a limited portion of the application."),
+        ("Low", "A relatively minor threat with limited direct impact on its own."),
+        ("Info", "No immediate threat. Notes a condition worth tracking or that could contribute to a future finding."),
+    ]
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(51, 65, 85)
+    for label, desc in _risk_defs:
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 5, _s(f"  {label} — {desc}", 260))
+    pdf.ln(3)
+
+    # Impact level definitions — mirrors enrichment._impact_label() wording exactly
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(20, 30, 60)
+    pdf.cell(0, 8, "Impact Level Definitions", 0, 1)
+    _impact_defs = [
+        ("High",   "Significant loss of confidentiality, integrity, or availability."),
+        ("Medium", "Partial loss of confidentiality, integrity, or availability."),
+        ("Low",    "Limited loss of confidentiality, integrity, or availability."),
+        ("None",   "No direct loss of confidentiality, integrity, or availability on its own."),
+    ]
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(51, 65, 85)
+    for label, desc in _impact_defs:
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 5, _s(f"  {label} — {desc}", 260))
+    pdf.ln(3)
+
+    # Exploitability level definitions — mirrors enrichment._exploitability_label() wording
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(20, 30, 60)
+    pdf.cell(0, 8, "Exploitability Level Definitions", 0, 1)
+    _exploit_defs = [
+        ("Easily Exploitable",   "Active, publicly available exploits exist for this class of finding."),
+        ("Exploitable",          "Working exploit code is available or straightforward to construct."),
+        ("Moderately Exploitable", "Exploitation is possible but requires specific conditions to be met."),
+        ("Difficult to Exploit", "Exploitation requires limited or unusual conditions."),
+        ("Not Directly Exploitable", "No direct exploitation path is known for this finding on its own."),
+    ]
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(51, 65, 85)
+    for label, desc in _exploit_defs:
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 5, _s(f"  {label} — {desc}", 260))
+    pdf.ln(3)
+
+    # Finding category reference — one line per `type` value the platform assigns
+    _cat_height = 10 + 5 * 6
+    if pdf.get_y() + _cat_height > pdf.page_break_trigger:
+        pdf.add_page()
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(20, 30, 60)
+    pdf.cell(0, 8, "Finding Category Reference", 0, 1)
+    _category_defs = [
+        ("SQL / Command Injection", "Unsanitised input reaches a database query or an OS-level command."),
+        ("XSS (Reflected / Stored)", "Attacker-controlled script executes in another user's browser session."),
+        ("Path Traversal / IDOR / SSRF", "Unauthorised access to files, other users' data, or internal-only resources."),
+        ("CSRF / Open Redirect / CORS Misconfiguration", "A state-changing action, redirect, or cross-origin request is not properly restricted."),
+        ("Auth Misconfiguration", "Authentication or authorisation controls are weak, missing, or bypassable."),
+        ("Missing Security Header / Insecure Cookie / SSL Error", "Transport or browser-level protections are absent or misconfigured."),
+        ("Open Port / Vulnerable Version", "A network service is reachable, or a component with a known CVE is in use."),
+        ("Cloud Misconfiguration", "A cloud resource (storage, IAM, network, etc.) is insecurely configured."),
+        ("Information Disclosure / Web Vulnerability", "The application reveals more than intended, or an issue not covered above."),
+    ]
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(51, 65, 85)
+    for label, desc in _category_defs:
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 5, _s(f"  {label} — {desc}", 280))
 
     # ── Section 4: Conclusion ─────────────────────────────────────────────────
     pdf.add_page()
