@@ -181,9 +181,9 @@ st.markdown("""
 # HELPERS
 # ────────────────────────────────────────────────────────────────────────────
 
-def api_get(endpoint, params=None):
+def api_get(endpoint, params=None, timeout=12):
     try:
-        r = requests.get(f"{API_BASE}{endpoint}", params=params, timeout=12)
+        r = requests.get(f"{API_BASE}{endpoint}", params=params, timeout=timeout)
         return r.json() if r.ok else None
     except:
         return None
@@ -191,7 +191,13 @@ def api_get(endpoint, params=None):
 def api_post(endpoint, payload):
     try:
         r = requests.post(f"{API_BASE}{endpoint}", json=payload, timeout=30)
-        return r.json()
+        if r.ok:
+            return r.json()
+        try:
+            detail = r.json().get("detail", r.text[:200])
+        except Exception:
+            detail = r.text[:200]
+        return {"error": f"HTTP {r.status_code}: {detail}"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -642,6 +648,11 @@ elif page == "Review":
                             st.code(req_block, language="http")
                             resp_hdr  = evidence.get("response_header", "")
                             resp_body = evidence.get("response_snippet", "")
+                            if not resp_hdr and not resp_body:
+                                # Some LLM output collapses header+body into a
+                                # single `response` field instead of the two
+                                # separate fields above — fall back to it.
+                                resp_body = evidence.get("response", "")
                             if resp_hdr or resp_body:
                                 resp_block = resp_hdr.rstrip() + ("\r\n\r\n" + resp_body if resp_body else "")
                                 st.markdown("_HTTP Response_")
@@ -719,7 +730,11 @@ elif page == "Review":
                             st.caption(f"Notes: {f['reviewer_notes']}")
 
             # ── Tabs: Review Queue / All Findings ────────────────────────────
-            queue = api_get(f"/session/{sid}/review/queue")
+            # Cold builds (session pre-dates queue persistence) make a real
+            # LLM call per Critical/High finding to generate its brief —
+            # the default 12s timeout isn't enough for that, only for the
+            # normal fast path of returning an already-persisted queue.
+            queue = api_get(f"/session/{sid}/review/queue", timeout=90)
             if "batch_decisions" not in st.session_state:
                 st.session_state["batch_decisions"] = {}
 
@@ -964,7 +979,7 @@ elif page == "Export":
         dur = chosen.get("duration_seconds")
         m5.metric("Duration",  f"{int(dur)}s" if dur else "-")
 
-        # ── Format download buttons ──────────────────────────────────────────
+        # ── Format selector + single generate button ─────────────────────────
         st.divider()
         st.markdown("### Download Report")
 
@@ -975,32 +990,39 @@ elif page == "Export":
             ("CSV",              "csv",          "text/csv",         "csv"),
             ("JSON",             "json",         "application/json", "json"),
         ]
+        FORMAT_LABELS = [f[0] for f in FORMATS]
 
-        cols = st.columns(len(FORMATS))
-        for col, (label, fmt, mime, ext) in zip(cols, FORMATS):
-            with col:
-                if st.button(f"Generate {label}", key=f"gen_{fmt}_{sid}"):
-                    with st.spinner(f"Generating {label} report…"):
-                        data, ct, err = api_download(
-                            f"/report/{sid}/download",
-                            params={"format": fmt},
-                        )
-                    if err:
-                        st.error(f"{label} failed: {err}")
-                    else:
-                        st.session_state[f"dl_{fmt}_{sid}"] = (data, ct)
-                        st.success(f"{label} ready — click Download below")
+        sel_col, btn_col = st.columns([3, 2])
+        with sel_col:
+            chosen_label = st.selectbox(
+                "Format", FORMAT_LABELS, key=f"fmt_select_{sid}",
+                label_visibility="collapsed",
+            )
+        label, fmt, mime, ext = next(f for f in FORMATS if f[0] == chosen_label)
 
-                key = f"dl_{fmt}_{sid}"
-                if key in st.session_state:
-                    data, ct = st.session_state[key]
-                    st.download_button(
-                        label=f"Download {label}",
-                        data=data,
-                        file_name=f"vapt_report_{sid[:8]}.{ext}",
-                        mime=ct or mime,
-                        key=f"dlbtn_{fmt}_{sid}",
+        with btn_col:
+            if st.button("Generate Report", key=f"gen_{sid}", use_container_width=True):
+                with st.spinner(f"Generating {label} report…"):
+                    data, ct, err = api_download(
+                        f"/report/{sid}/download",
+                        params={"format": fmt},
                     )
+                if err:
+                    st.error(f"{label} failed: {err}")
+                else:
+                    st.session_state[f"dl_{fmt}_{sid}"] = (data, ct)
+                    st.success(f"{label} ready — click Download below")
+
+        key = f"dl_{fmt}_{sid}"
+        if key in st.session_state:
+            data, ct = st.session_state[key]
+            st.download_button(
+                label=f"Download {label}",
+                data=data,
+                file_name=f"vapt_report_{sid[:8]}.{ext}",
+                mime=ct or mime,
+                key=f"dlbtn_{fmt}_{sid}",
+            )
 
 # ────────────────────────────────────────────────────────────────────────────
 # PAGE: GUIDE
