@@ -159,9 +159,14 @@ def _run_scan(session_id: str, target: str, config: ScanConfig,
     from database.connection import SessionLocal
     db = SessionLocal()
 
-    def _cb(sid, status):
+    def _cb(sid, snapshot):
+        # `snapshot` is orchestrator.run()'s local session dict at the moment
+        # of this callback — merge it into the global dict now rather than
+        # waiting for run() to fully return, so external requests see
+        # up-to-date findings/summary at every phase transition, not just
+        # once at the very end (see the matching comment in orchestrator.py).
         if sid in sessions:
-            sessions[sid]["status"] = status
+            sessions[sid].update(snapshot)
 
     try:
         result = Orchestrator(config=config).run(

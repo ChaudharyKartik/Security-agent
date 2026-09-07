@@ -79,7 +79,17 @@ class Orchestrator:
         def _set(s):
             session["status"] = s
             if status_callback:
-                status_callback(session_id, s)
+                # Pass the full current snapshot, not just the status string.
+                # This `session` dict is local to this run() call — main.py's
+                # global `sessions[session_id]` is a SEPARATE dict that only
+                # gets everything else (enriched_findings, summary,
+                # review_queue) via a single .update(result) once run()
+                # fully returns. A status-only callback left a window where
+                # an external request could see status="awaiting_validation"
+                # paired with the OLD, still-empty global dict — a poll
+                # landing there saw "done" with 0 findings, even though the
+                # local session already had the real data by that point.
+                status_callback(session_id, session)
             if db:
                 try:
                     crud.update_session_status(db, session_id, s)
