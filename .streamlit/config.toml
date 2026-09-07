@@ -1,0 +1,15 @@
+# Base dark theme, applied server-side before any HTML reaches the browser.
+# ui/app.py's injected <style> block (Forest Green + Gold custom design —
+# badges, gradients, hover effects) still layers on top of this for the rest
+# of the visual polish; that part is only client-side CSS delivered after
+# the page loads, so it's inherently prone to a brief flash-of-unstyled-
+# content on a slower connection (e.g. over a real network hop rather than
+# localhost). This file exists specifically to guarantee the app is never
+# fully white/unstyled even during that window — Streamlit applies these
+# base colors before sending any page content at all.
+[theme]
+base = "dark"
+primaryColor = "#d4a574"
+backgroundColor = "#0f1419"
+secondaryBackgroundColor = "#1a1f2e"
+textColor = "#e8e8e8"
