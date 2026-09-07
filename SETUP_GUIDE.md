@@ -43,8 +43,10 @@ First build takes 3–5 minutes (downloads Nuclei templates). Subsequent starts 
 | Service | URL |
 |---------|-----|
 | Streamlit UI | http://localhost:8501 |
-| FastAPI + Swagger | http://localhost:8000/docs |
+| FastAPI + Swagger | http://localhost:8080/docs |
 | ZAP daemon | http://localhost:8090 (internal to stack) |
+
+The API's host-exposed port is `8080` (Docker Compose only — the container listens on `8000` internally, and the UI reaches it over Docker's internal network regardless) specifically to avoid colliding with MobSF, which defaults to port 8000 and is commonly run alongside other security tooling. If you need a different port on your machine, change only the host side of the `api` service's `ports:` mapping in `docker-compose.yml` (`"8080:8000"` → `"<your-port>:8000"`) — leave the container-side `8000` and the internal `ZAP_API_BASE`/`API_BASE` values alone, they're unrelated to the host mapping.
 
 ZAP takes ~60 seconds to become healthy. The API waits for it automatically.
 

@@ -118,7 +118,7 @@ docker compose up --build
 | Service | URL |
 |---------|-----|
 | Streamlit UI | http://localhost:8501 |
-| FastAPI + Swagger | http://localhost:8000/docs |
+| FastAPI + Swagger | http://localhost:8080/docs |
 | ZAP (internal) | http://localhost:8090 |
 
 First build takes 3–5 minutes (downloads Nuclei templates). ZAP takes ~60s to become healthy.
