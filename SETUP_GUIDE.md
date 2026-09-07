@@ -267,6 +267,33 @@ To reset the database:
 - Local: delete `vapt.db`
 - Docker: `docker compose down -v`
 
+### Upgrading an existing database
+
+A brand-new database always has the current full schema — `init_db()` calls `Base.metadata.create_all()` at startup, which creates every table as defined right now. That call does **not**, however, add new columns to a table that already exists — so if you're pulling updates into a project that already has a `vapt.db` (or a PostgreSQL database) from before the `review_queue` column was added to `scan_sessions`, you need one manual step:
+
+```bash
+# SQLite
+python -c "
+import sqlite3
+conn = sqlite3.connect('vapt.db')
+cur = conn.cursor()
+cur.execute(\"PRAGMA table_info(scan_sessions)\")
+if 'review_queue' not in [r[1] for r in cur.fetchall()]:
+    cur.execute('ALTER TABLE scan_sessions ADD COLUMN review_queue TEXT')
+    conn.commit()
+    print('Migrated.')
+else:
+    print('Already up to date.')
+"
+```
+
+```sql
+-- PostgreSQL
+ALTER TABLE scan_sessions ADD COLUMN IF NOT EXISTS review_queue TEXT;
+```
+
+This is additive and non-destructive — it only adds a new nullable column, no existing rows are touched. Without it, review-queue loads for sessions that already exist will keep falling back to an on-demand rebuild every time (functional, just slower and without persisted history — see `DOCUMENTATION.md` §3.6) instead of erroring outright.
+
 ---
 
 ## Troubleshooting
@@ -284,3 +311,5 @@ To reset the database:
 | Port conflict | Change port: `uvicorn ... --port 8001` or edit `docker-compose.yml` |
 | DB locked error on delete | Scan may still be active — wait and retry |
 | Prowler returns no findings | Configure AWS credentials with `aws configure` |
+| Review queue won't load / times out | First load for a session predating queue persistence makes a real LLM call per Critical/High finding to write its brief — this can legitimately take tens of seconds under free-tier rate limits. Retry once; it's persisted after the first successful load and is fast every time after. |
+| Can't reach the UI/API from another device on the same network (`ERR_CONNECTION_TIMED_OUT`) | On Windows, this is almost always the firewall, not the server. Confirm the server is actually listening on `0.0.0.0` (not just `127.0.0.1`) with `netstat -ano \| findstr 8501` (or `8000`). If it is, check whether Windows has classified the network as **Public** (`Get-NetConnectionProfile` in PowerShell) — Public profiles block unsolicited inbound connections by default. Check for a conflicting rule for the *specific* `python.exe` your venv uses (`Get-NetFirewallRule -Direction Inbound \| Where DisplayName -eq 'python.exe'`) — a machine can easily have both an Allow rule for one Python install and a Block rule for another, and Block always wins when both exist for the same profile. Fix with a scoped inbound rule for the ports you actually need (not a blanket allow for the whole binary), e.g.: `New-NetFirewallRule -DisplayName "VAPT UI" -Direction Inbound -Protocol TCP -LocalPort 8501,8000 -Action Allow -Profile Public -RemoteAddress LocalSubnet` — the `-RemoteAddress LocalSubnet` scoping keeps this open to your own network only, not the whole internet. |
