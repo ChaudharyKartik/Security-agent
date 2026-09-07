@@ -24,7 +24,7 @@ services:
   api:
     build: .
     ports:
-      - "8080:8000"     # host port only — avoids conflicting with MobSF's default 8000
+      - "8001:8000"     # host port only — 8000/8080 both taken on the deployment target
     env_file:
       - .env
     environment:
