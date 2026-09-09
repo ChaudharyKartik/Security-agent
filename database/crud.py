@@ -10,7 +10,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from database.models import (
-    ScanSession, ScanFinding, AnalystFeedback, ScanReport, AgentIterationLog,
+    ScanSession, ScanFinding, AnalystFeedback, ScanReport, AgentIterationLog, User,
 )
 
 logger = logging.getLogger(__name__)
@@ -287,6 +287,25 @@ def get_feedback(db: Session, session_id: str) -> list[AnalystFeedback]:
               .filter(AnalystFeedback.session_id == session_id)
               .order_by(AnalystFeedback.created_at.desc())
               .all())
+
+
+# ── Users ──────────────────────────────────────────────────────────────────────
+
+def create_user(db: Session, username: str, password_hash: str) -> User:
+    obj = User(username=username, password_hash=password_hash)
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    logger.info(f"[DB] User created: {username}")
+    return obj
+
+
+def get_user_by_username(db: Session, username: str) -> Optional[User]:
+    return db.query(User).filter(User.username == username).first()
+
+
+def count_users(db: Session) -> int:
+    return db.query(User).count()
 
 
 # ── Reports ────────────────────────────────────────────────────────────────────

@@ -30,6 +30,8 @@ LLM_PROVIDER=groq
 GROQ_API_KEY=your_groq_api_key   # https://console.groq.com — free, no card
 ```
 
+Also set a `SECRET_KEY` and the first login (`ADMIN_USERNAME`/`ADMIN_PASSWORD`) — see [Authentication](#authentication) below. The app refuses to start without `SECRET_KEY`.
+
 `ZAP_API_BASE` and API service URLs are set automatically by `docker-compose.yml` — do not add them.
 
 ### Step 2 — Build and start
@@ -97,6 +99,10 @@ GROQ_API_KEY=your_groq_api_key
 
 ZAP_API_BASE=http://localhost:8090
 ZAP_API_KEY=changeme
+
+SECRET_KEY=<output of: python -c "import secrets; print(secrets.token_hex(32))">
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<pick a real password>
 ```
 
 ### Step 4 — Install scanning tools (optional but recommended)
@@ -162,6 +168,54 @@ Open **http://localhost:8501**
 
 ---
 
+## Authentication
+
+The platform requires a login. There are no roles or permission tiers — any valid
+account has full access — this is an internal assessment tool, not a multi-tenant
+product.
+
+**`SECRET_KEY`** signs login tokens. It's required; the API raises `RuntimeError`
+and refuses to start without it. Generate a real one per deployment:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+**First user.** On startup, if the `users` table is empty, the API creates one
+account from `ADMIN_USERNAME` / `ADMIN_PASSWORD` in `.env`. After that first user
+exists, those two env vars are no longer read on subsequent startups — there's no
+self-registration or change-password UI yet, so to add a second user or rotate the
+first one, insert/update a row in the `users` table directly (`password_hash` must
+be a bcrypt hash, e.g. via `python -c "import bcrypt; print(bcrypt.hashpw(b'newpass', bcrypt.gensalt()).decode())"`).
+
+**Logging in.** The Streamlit UI shows a login form on first load. Credentials go
+to `POST /auth/login`, which returns a JWT (default lifetime 8 hours,
+`ACCESS_TOKEN_EXPIRE_MINUTES` in `.env`). The token is held only in
+`st.session_state` — server-side memory for that Streamlit session — and attached
+as an `Authorization: Bearer <token>` header on every subsequent API call. It is
+never written to a cookie or to the browser's `localStorage`, so nothing
+token-bearing reaches client-side storage. If a call comes back `401` (token
+expired, or the server restarted since login), the UI drops the stored token and
+re-shows the login form.
+
+**Unauthenticated routes** — deliberately, only three: `GET /`, `GET /health`
+(Docker Compose's healthcheck has no way to send an auth header, and the `ui`
+container's `depends_on: condition: service_healthy` chain depends on it), and
+`POST /auth/login` (you can't require a token to get a token). Every other route
+requires a valid bearer token.
+
+**Calling the API directly** (scripts, curl, Postman) — get a token first:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8001/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "your_password"}' | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+curl http://localhost:8001/sessions -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
 ## Running Your First Scan
 
 ### Via the UI
@@ -176,28 +230,33 @@ Open **http://localhost:8501**
 
 ### Via the API
 
+Every route below except `/auth/login` needs the bearer token from
+[Authentication](#authentication) — get `$TOKEN` first, then:
+
 ```bash
+AUTH="Authorization: Bearer $TOKEN"
+
 # Start a scan
 curl -X POST http://localhost:8000/scan \
-  -H "Content-Type: application/json" \
+  -H "$AUTH" -H "Content-Type: application/json" \
   -d '{"target": "https://testphp.vulnweb.com", "scan_mode": "full"}'
 # Returns: {"session_id": "A1B2C3D4", ...}
 
 # Poll status
-curl http://localhost:8000/session/A1B2C3D4/status
+curl -H "$AUTH" http://localhost:8000/session/A1B2C3D4/status
 
 # Get findings
-curl http://localhost:8000/session/A1B2C3D4/findings
+curl -H "$AUTH" http://localhost:8000/session/A1B2C3D4/findings
 
 # Filter findings by severity
-curl "http://localhost:8000/session/A1B2C3D4/findings?severity=High"
+curl -H "$AUTH" "http://localhost:8000/session/A1B2C3D4/findings?severity=High"
 
 # Get review queue
-curl http://localhost:8000/session/A1B2C3D4/review/queue
+curl -H "$AUTH" http://localhost:8000/session/A1B2C3D4/review/queue
 
 # Submit analyst decisions
 curl -X POST http://localhost:8000/session/A1B2C3D4/review \
-  -H "Content-Type: application/json" \
+  -H "$AUTH" -H "Content-Type: application/json" \
   -d '{
     "decisions": [
       {"finding_id": "FIND-XXXX", "action": "confirm",        "analyst": "Kartik"},
@@ -208,13 +267,13 @@ curl -X POST http://localhost:8000/session/A1B2C3D4/review \
   }'
 
 # Generate and download report
-curl "http://localhost:8000/report/A1B2C3D4/download?format=pdf" -o report.pdf
+curl -H "$AUTH" "http://localhost:8000/report/A1B2C3D4/download?format=pdf" -o report.pdf
 
 # List all sessions
-curl http://localhost:8000/sessions
+curl -H "$AUTH" http://localhost:8000/sessions
 
 # Delete a session
-curl -X DELETE http://localhost:8000/session/A1B2C3D4
+curl -X DELETE -H "$AUTH" http://localhost:8000/session/A1B2C3D4
 ```
 
 ---
@@ -315,3 +374,6 @@ This is additive and non-destructive — it only adds a new nullable column, no 
 | Prowler returns no findings | Configure AWS credentials with `aws configure` |
 | Review queue won't load / times out | First load for a session predating queue persistence makes a real LLM call per Critical/High finding to write its brief — this can legitimately take tens of seconds under free-tier rate limits. Retry once; it's persisted after the first successful load and is fast every time after. |
 | Can't reach the UI/API from another device on the same network (`ERR_CONNECTION_TIMED_OUT`) | On Windows, this is almost always the firewall, not the server. Confirm the server is actually listening on `0.0.0.0` (not just `127.0.0.1`) with `netstat -ano \| findstr 8501` (or `8000`). If it is, check whether Windows has classified the network as **Public** (`Get-NetConnectionProfile` in PowerShell) — Public profiles block unsolicited inbound connections by default. Check for a conflicting rule for the *specific* `python.exe` your venv uses (`Get-NetFirewallRule -Direction Inbound \| Where DisplayName -eq 'python.exe'`) — a machine can easily have both an Allow rule for one Python install and a Block rule for another, and Block always wins when both exist for the same profile. Fix with a scoped inbound rule for the ports you actually need (not a blanket allow for the whole binary), e.g.: `New-NetFirewallRule -DisplayName "VAPT UI" -Direction Inbound -Protocol TCP -LocalPort 8501,8000 -Action Allow -Profile Public -RemoteAddress LocalSubnet` — the `-RemoteAddress LocalSubnet` scoping keeps this open to your own network only, not the whole internet. |
+| API won't start: `RuntimeError: SECRET_KEY is not set` | Add `SECRET_KEY` to `.env` — generate one with `python -c "import secrets; print(secrets.token_hex(32))"`. This is required, not optional. |
+| Can't log in / "no one can log in until a user is created manually" in the API logs | `ADMIN_USERNAME`/`ADMIN_PASSWORD` weren't set in `.env` before the *first* startup (the auto-created-user check only runs when the `users` table is empty). Set both in `.env`, then create the user directly: `python -c "from database.connection import SessionLocal; from database import crud; db = SessionLocal(); crud.create_user(db, 'admin', __import__('bcrypt').hashpw(b'yourpassword', __import__('bcrypt').gensalt()).decode())"` |
+| Streamlit keeps bouncing back to the login form | The stored token expired (default 8h, `ACCESS_TOKEN_EXPIRE_MINUTES`) or the API restarted with a different `SECRET_KEY` since you logged in — either invalidates the token. Just log in again. |

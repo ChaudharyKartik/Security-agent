@@ -181,16 +181,26 @@ st.markdown("""
 # HELPERS
 # ────────────────────────────────────────────────────────────────────────────
 
+def _auth_headers():
+    token = st.session_state.get("token")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
 def api_get(endpoint, params=None, timeout=12):
     try:
-        r = requests.get(f"{API_BASE}{endpoint}", params=params, timeout=timeout)
+        r = requests.get(f"{API_BASE}{endpoint}", params=params, headers=_auth_headers(), timeout=timeout)
+        if r.status_code == 401:
+            st.session_state.pop("token", None)
+            st.rerun()
         return r.json() if r.ok else None
     except:
         return None
 
 def api_post(endpoint, payload):
     try:
-        r = requests.post(f"{API_BASE}{endpoint}", json=payload, timeout=30)
+        r = requests.post(f"{API_BASE}{endpoint}", json=payload, headers=_auth_headers(), timeout=30)
+        if r.status_code == 401:
+            st.session_state.pop("token", None)
+            st.rerun()
         if r.ok:
             return r.json()
         try:
@@ -204,7 +214,10 @@ def api_post(endpoint, payload):
 def api_download(endpoint, params=None):
     """Return (bytes, content_type, error_msg) for binary downloads."""
     try:
-        r = requests.get(f"{API_BASE}{endpoint}", params=params, timeout=60)
+        r = requests.get(f"{API_BASE}{endpoint}", params=params, headers=_auth_headers(), timeout=60)
+        if r.status_code == 401:
+            st.session_state.pop("token", None)
+            st.rerun()
         if r.ok:
             return r.content, r.headers.get("content-type", "application/octet-stream"), None
         try:
@@ -218,7 +231,10 @@ def api_download(endpoint, params=None):
 def api_delete(endpoint) -> tuple:
     """Return (ok: bool, error_msg: str | None)."""
     try:
-        r = requests.delete(f"{API_BASE}{endpoint}", timeout=10)
+        r = requests.delete(f"{API_BASE}{endpoint}", headers=_auth_headers(), timeout=10)
+        if r.status_code == 401:
+            st.session_state.pop("token", None)
+            st.rerun()
         if r.ok:
             return True, None
         try:
@@ -230,8 +246,12 @@ def api_delete(endpoint) -> tuple:
         return False, str(e)
 
 def check_api():
-    r = api_get("/health")
-    return r is not None and r.get("status") == "healthy"
+    # Unauthenticated by design (Docker healthcheck) — never gated on login.
+    try:
+        r = requests.get(f"{API_BASE}/health", timeout=12)
+        return r.ok and r.json().get("status") == "healthy"
+    except:
+        return False
 
 def severity_badge_html(severity):
     badges = {
@@ -242,6 +262,55 @@ def severity_badge_html(severity):
         "Info": '<span class="badge badge-info">INFO</span>'
     }
     return badges.get(severity, severity)
+
+# ────────────────────────────────────────────────────────────────────────────
+# LOGIN GATE
+# ────────────────────────────────────────────────────────────────────────────
+# The JWT lives only in st.session_state — server-side memory for this
+# Streamlit session. It is never written to the browser (no cookie, no
+# localStorage), so it never touches client-side storage. See auth.py for
+# the token itself; this just gates the UI on having one.
+
+def _login(username, password):
+    try:
+        r = requests.post(f"{API_BASE}/auth/login",
+                           json={"username": username, "password": password},
+                           timeout=10)
+        if r.ok:
+            return r.json()["access_token"], None
+        try:
+            detail = r.json().get("detail", r.text[:200])
+        except Exception:
+            detail = r.text[:200]
+        return None, detail
+    except Exception as e:
+        return None, str(e)
+
+if not st.session_state.get("token"):
+    st.markdown("""
+    <div style="text-align: center; padding: 60px 0 24px 0;">
+        <h1 style="margin: 0; font-size: 28px; font-weight: 800; color: #e8e8e8;">🛡️ Security Hub</h1>
+        <p style="margin: 8px 0 0 0; color: #a0a8b8; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">Sign in to continue</p>
+    </div>
+    """, unsafe_allow_html=True)
+    _, form_col, _ = st.columns([1, 1.2, 1])
+    with form_col:
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Log in", use_container_width=True)
+        if submitted:
+            if not username or not password:
+                st.error("Enter both a username and password.")
+            else:
+                token, error = _login(username, password)
+                if token:
+                    st.session_state["token"] = token
+                    st.session_state["username"] = username
+                    st.rerun()
+                else:
+                    st.error(error or "Login failed.")
+    st.stop()
 
 # ────────────────────────────────────────────────────────────────────────────
 # SIDEBAR NAVIGATION
@@ -260,13 +329,19 @@ with st.sidebar:
         st.success("Connected")
     else:
         st.error("Offline")
-    
+
+    st.caption(f"Signed in as **{st.session_state.get('username', 'user')}**")
+    if st.button("Log out", use_container_width=True):
+        st.session_state.pop("token", None)
+        st.session_state.pop("username", None)
+        st.rerun()
+
     st.divider()
-    
+
     page = st.radio("Menu", ["Scan", "Dashboard", "Review", "Export", "Guide"], label_visibility="collapsed")
-    
+
     st.divider()
-    
+
     with st.expander("Settings"):
         st.selectbox("Color Theme", ["Forest Green", "Slate", "Copper"])
         st.toggle("Advanced Mode")

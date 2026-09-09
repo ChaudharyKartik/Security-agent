@@ -17,3 +17,9 @@ fpdf2==2.7.9
 sqlalchemy==2.0.30
 aiosqlite==0.20.0
 alembic==1.13.1
+
+# Auth — password hashing + JWT
+# (bcrypt used directly, not via passlib — passlib 1.7.4's bcrypt backend is
+# broken against bcrypt 4.x+ and hasn't been meaningfully maintained since 2020)
+bcrypt==5.0.0
+python-jose[cryptography]==3.3.0

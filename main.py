@@ -13,7 +13,7 @@ load_dotenv()
 from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, BackgroundTasks, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
@@ -26,8 +26,11 @@ from agents.llm_client import get_llm
 from scan_config import ScanConfig
 from validator import validate_finding, validate_batch, get_validation_stats
 from report_generator import generate_report
-from database.connection import init_db, get_db
+from database.connection import init_db, get_db, SessionLocal
 from database import crud
+from auth import (
+    get_current_user, create_access_token, verify_password, ensure_initial_user,
+)
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -42,6 +45,11 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 async def lifespan(app: FastAPI):
     init_db()
     logger.info("[MAIN] Database ready.")
+    db = SessionLocal()
+    try:
+        ensure_initial_user(db)
+    finally:
+        db.close()
     yield
 
 
@@ -53,6 +61,15 @@ app = FastAPI(
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
+
+# Every route below is registered on `router`, not `app` directly, and the
+# whole router requires a valid auth token — attached once here rather than
+# edited into each route individually. Only /, /health, and /auth/login stay
+# on `app` (unauthenticated): / and /health because Docker Compose's
+# healthcheck can't send an auth header (and ui's startup is gated on api's
+# healthcheck passing), and /auth/login because you can't require a token to
+# get a token.
+router = APIRouter()
 
 # In-memory store — used ONLY for active scans (real-time status polling)
 # Completed sessions are read from DB. On restart active scans are lost (acceptable).
@@ -263,9 +280,27 @@ def health(db: Session = Depends(get_db)):
     }
 
 
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/auth/login")
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = crud.get_user_by_username(db, req.username)
+    if not user or not verify_password(req.password, user.password_hash):
+        # Same error for "no such user" and "wrong password" — don't let a
+        # caller enumerate valid usernames from the error message alone.
+        raise HTTPException(401, "Invalid username or password")
+    token = create_access_token(user.username)
+    return {"access_token": token, "token_type": "bearer"}
+
+
 # ── Scan routes ───────────────────────────────────────────────────────────────
 
-@app.post("/scan", status_code=202)
+@router.post("/scan", status_code=202)
 def start_scan(req: ScanRequest, background_tasks: BackgroundTasks):
     session_id = str(uuid.uuid4())[:8].upper()
     config     = req.to_scan_config()
@@ -307,7 +342,7 @@ def start_scan(req: ScanRequest, background_tasks: BackgroundTasks):
 
 
 # TEMP: two-phase scan — step 2: run agents against a saved recon result
-@app.post("/scan/{session_id}/run-agents", status_code=202)
+@router.post("/scan/{session_id}/run-agents", status_code=202)
 def run_agents(session_id: str, req: RunAgentsRequest,
                background_tasks: BackgroundTasks):
     if session_id not in sessions:
@@ -326,7 +361,7 @@ def run_agents(session_id: str, req: RunAgentsRequest,
     }
 
 
-@app.get("/sessions")
+@router.get("/sessions")
 def list_sessions(
     limit:  int = Query(50, ge=1, le=500),
     offset: int = Query(0,  ge=0),
@@ -355,12 +390,12 @@ def list_sessions(
     return {"total": total, "count": len(rows), "offset": offset, "sessions": rows}
 
 
-@app.get("/session/{session_id}")
+@router.get("/session/{session_id}")
 def get_session(session_id: str, db: Session = Depends(get_db)):
     return _get_session_dict(session_id, db)
 
 
-@app.get("/session/{session_id}/status")
+@router.get("/session/{session_id}/status")
 def get_status(session_id: str, db: Session = Depends(get_db)):
     s = _get_session_dict(session_id, db)
     return {
@@ -372,13 +407,13 @@ def get_status(session_id: str, db: Session = Depends(get_db)):
     }
 
 
-@app.get("/session/{session_id}/plan")
+@router.get("/session/{session_id}/plan")
 def get_execution_plan(session_id: str, db: Session = Depends(get_db)):
     """Show the agent execution plan for this session."""
     return _get_session_dict(session_id, db).get("execution_plan", {})
 
 
-@app.get("/session/{session_id}/findings")
+@router.get("/session/{session_id}/findings")
 def get_findings(
     session_id:   str,
     severity:     Optional[str]  = Query(None),
@@ -410,7 +445,7 @@ def get_findings(
     return {"count": len(findings), "findings": findings}
 
 
-@app.delete("/session/{session_id}")
+@router.delete("/session/{session_id}")
 def delete_session(session_id: str, db: Session = Depends(get_db)):
     if session_id in sessions:
         del sessions[session_id]
@@ -432,7 +467,7 @@ def delete_session(session_id: str, db: Session = Depends(get_db)):
 
 # ── Validation routes ─────────────────────────────────────────────────────────
 
-@app.post("/validate/{session_id}")
+@router.post("/validate/{session_id}")
 def validate(session_id: str, req: ValidationRequest,
              db: Session = Depends(get_db)):
     s = _get_session_dict(session_id, db)
@@ -464,7 +499,7 @@ def validate(session_id: str, req: ValidationRequest,
             "action": req.action, "persisted": True}
 
 
-@app.post("/validate/{session_id}/batch")
+@router.post("/validate/{session_id}/batch")
 def batch_validate(session_id: str, req: BatchValidationRequest,
                    db: Session = Depends(get_db)):
     s        = _get_session_dict(session_id, db)
@@ -482,7 +517,7 @@ def batch_validate(session_id: str, req: BatchValidationRequest,
     }
 
 
-@app.get("/session/{session_id}/feedback")
+@router.get("/session/{session_id}/feedback")
 def get_feedback(session_id: str, db: Session = Depends(get_db)):
     """Return the full analyst feedback audit trail for a session."""
     _get_session_dict(session_id, db)   # verify session exists
@@ -506,7 +541,7 @@ def get_feedback(session_id: str, db: Session = Depends(get_db)):
 
 # ── Reviewer routes ───────────────────────────────────────────────────────────
 
-@app.get("/session/{session_id}/review/queue")
+@router.get("/session/{session_id}/review/queue")
 def get_review_queue(session_id: str, db: Session = Depends(get_db)):
     """Return the review queue for this session — which findings need analyst sign-off."""
     s = _get_session_dict(session_id, db)
@@ -528,7 +563,7 @@ def get_review_queue(session_id: str, db: Session = Depends(get_db)):
     return queue
 
 
-@app.post("/session/{session_id}/review")
+@router.post("/session/{session_id}/review")
 def submit_review(session_id: str, req: ReviewSubmission,
                   db: Session = Depends(get_db)):
     """
@@ -592,7 +627,7 @@ def submit_review(session_id: str, req: ReviewSubmission,
 
 # ── Report routes ─────────────────────────────────────────────────────────────
 
-@app.get("/report/{session_id}")
+@router.get("/report/{session_id}")
 def get_report(
     session_id: str,
     format: str = Query("json", pattern="^(json|html|pdf|csv|professional|all|both)$"),
@@ -615,7 +650,7 @@ def get_report(
     return {"message": "Report generated", "format": format, "files": paths}
 
 
-@app.get("/report/{session_id}/download")
+@router.get("/report/{session_id}/download")
 def download_report(
     session_id: str,
     format: str = Query("html", pattern="^(json|html|pdf|csv|professional)$"),
@@ -650,7 +685,7 @@ def download_report(
     )
 
 
-@app.get("/session/{session_id}/reports")
+@router.get("/session/{session_id}/reports")
 def list_reports(session_id: str, db: Session = Depends(get_db)):
     """List all generated report files for a session."""
     _get_session_dict(session_id, db)
@@ -668,3 +703,9 @@ def list_reports(session_id: str, db: Session = Depends(get_db)):
             for r in rows
         ],
     }
+
+
+# Every route registered on `router` above requires a valid auth token —
+# attached once here, not edited into each route individually. Must come
+# after every @router.* definition above it.
+app.include_router(router, dependencies=[Depends(get_current_user)])

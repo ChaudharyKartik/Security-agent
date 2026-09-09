@@ -207,3 +207,16 @@ class ScanReport(Base):
     created_at = Column(DateTime,   nullable=False, default=datetime.utcnow)
 
     session = relationship("ScanSession", back_populates="reports")
+
+
+class User(Base):
+    """
+    A platform user. No roles — every authenticated user has equal access,
+    since this is an internal tool, not a multi-tenant product.
+    """
+    __tablename__ = "users"
+
+    id            = Column(Integer,    primary_key=True, autoincrement=True)
+    username      = Column(String(64), nullable=False, unique=True)
+    password_hash = Column(String(128), nullable=False)   # bcrypt hash, never the plaintext
+    created_at    = Column(DateTime,   nullable=False, default=datetime.utcnow)
