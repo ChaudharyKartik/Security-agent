@@ -6,7 +6,6 @@ job is to sequence them and collect results. No security logic lives here.
 
 Scan modes:
   full       — all applicable agents for the detected domain
-  owasp      — same as full (OWASP coverage is now the agent's responsibility)
   checklist  — pass requested_tests as focus hints to agents
   single     — run the single most relevant agent with the requested test as goal
 """
@@ -196,7 +195,7 @@ class Orchestrator:
                 return {"network_agent": hints}
             return {"web_agent": hints}
 
-        # full / owasp / checklist — run all applicable agents
+        # full / checklist — run all applicable agents
         agents = {}
         if domain == "cloud":
             agents["cloud_agent"] = hints

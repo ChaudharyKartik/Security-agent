@@ -283,7 +283,6 @@ curl -X DELETE -H "$AUTH" http://localhost:8000/session/A1B2C3D4
 | Mode | Description |
 |------|-------------|
 | `full` | All applicable agents for the detected target domain |
-| `owasp` | Same as full (OWASP coverage is the agent's responsibility) |
 | `checklist` | Pass specific WSTG test IDs or names as focus hints |
 | `single` | Run exactly one agent with the test as its goal |
 

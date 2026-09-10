@@ -361,13 +361,12 @@ if page == "Scan":
         st.markdown("### Scan Mode")
         scan_mode_label = st.selectbox(
             "Scan Mode",
-            ["Full", "Checklist", "Single Vulnerability", "OWASP"],
+            ["Full", "Checklist", "Single Vulnerability"],
             label_visibility="collapsed",
             help=(
                 "Full: all applicable tests\n"
                 "Checklist: specific tests you choose\n"
-                "Single: one vulnerability only\n"
-                "OWASP: OWASP WSTG coverage (no internal checklist needed)"
+                "Single: one vulnerability only"
             ),
         )
     with c3:
@@ -378,7 +377,6 @@ if page == "Scan":
         "Full": "full",
         "Checklist": "checklist",
         "Single Vulnerability": "single",
-        "OWASP": "owasp",
     }
     scan_mode = _MODE_MAP[scan_mode_label]
 

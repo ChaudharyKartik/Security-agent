@@ -194,7 +194,6 @@ curl "http://localhost:8000/report/A1B2C3D4/download?format=pdf" -o report.pdf
 | Mode | Description |
 |------|-------------|
 | `full` | All applicable agents for the detected domain |
-| `owasp` | Same as full — OWASP coverage is the agent's responsibility |
 | `checklist` | Pass specific WSTG test IDs or names as focus hints to agents |
 | `single` | Run exactly one agent with the requested test as its goal |
 

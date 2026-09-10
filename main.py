@@ -1,7 +1,7 @@
 """
 FastAPI Entry Point — v5 (AI agents, LLM reviewer)
 
-Scan modes:  full | checklist | single | owasp
+Scan modes:  full | checklist | single
 DB:          SQLite default, PostgreSQL via DATABASE_URL
 """
 import logging
@@ -96,7 +96,7 @@ class ScanRequest(BaseModel):
     target:          str
     description:     Optional[str]  = None
 
-    scan_mode:       str            = "full"    # full | checklist | single | owasp
+    scan_mode:       str            = "full"    # full | checklist | single
     requested_tests: list[str]      = []
     tool_filter:     list[str]      = []        # temp: restrict agent to named tools only
 
@@ -134,7 +134,7 @@ class ScanRequest(BaseModel):
     @field_validator("scan_mode")
     @classmethod
     def valid_mode(cls, v):
-        valid = {"full", "checklist", "single", "owasp", "recon_only"}  # TEMP: recon_only added for flow testing
+        valid = {"full", "checklist", "single", "recon_only"}  # TEMP: recon_only added for flow testing
         if v not in valid:
             raise ValueError(f"scan_mode must be one of: {valid}")
         return v
