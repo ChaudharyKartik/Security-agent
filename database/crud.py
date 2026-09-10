@@ -93,6 +93,44 @@ def save_review_queue(db: Session, session_id: str, review_queue: dict) -> None:
     db.commit()
 
 
+# ── Crash recovery ────────────────────────────────────────────────────────────
+
+# Statuses a session only ever holds while orchestrator.run()/run_agents_only()
+# is actively executing (see their _set() calls) — every one of them is always
+# followed by either a further _set() or the `finally` block's finalise_session()
+# call before the function returns. "recon_complete" is deliberately excluded:
+# that's the two-phase scan's real resting state while it waits for a human to
+# call POST /scan/{id}/run-agents, not a crash artifact.
+_INFLIGHT_STATUSES = ("running", "recon", "scanning", "enrichment")
+
+
+def fail_orphaned_sessions(db: Session) -> list[str]:
+    """
+    Called once at startup (main.py's lifespan). The in-memory `sessions` dict
+    always starts empty on a fresh process — orchestrator runs live entirely
+    in-memory plus best-effort DB writes, with no read-back/resume path (see
+    DOCUMENTATION.md §12). So any row still showing an in-flight status at
+    this point belonged to a scan whose process died mid-run in a *previous*
+    process: there's no in-memory state left to resume it from, and letting it
+    sit there would make it look stuck forever instead of visibly failed.
+    Marks each one 'error' with an explanatory message. Returns the list of
+    session IDs marked, for the startup log line.
+    """
+    orphans = db.query(ScanSession).filter(ScanSession.status.in_(_INFLIGHT_STATUSES)).all()
+    ids = []
+    for obj in orphans:
+        prev_status  = obj.status
+        obj.status   = "error"
+        obj.error    = (f"Scan was interrupted by a server restart while in "
+                         f"'{prev_status}' state — no partial results were recoverable.")
+        obj.end_time = obj.end_time or datetime.utcnow()
+        ids.append(obj.id)
+    if ids:
+        db.commit()
+        logger.warning(f"[DB] Marked {len(ids)} orphaned session(s) as failed on startup: {ids}")
+    return ids
+
+
 # ── Agent iteration log ───────────────────────────────────────────────────────
 
 def log_agent_iteration(db: Session, session_id: str, agent: str, iteration: int,

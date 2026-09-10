@@ -48,6 +48,17 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         ensure_initial_user(db)
+        # Any session still showing an in-flight status (running/recon/
+        # scanning/enrichment) belonged to a scan whose process died before
+        # finishing — this process's in-memory `sessions` dict just started
+        # empty, so there's nothing to resume it from. Fail them visibly
+        # instead of leaving them looking permanently stuck.
+        orphaned = crud.fail_orphaned_sessions(db)
+        if orphaned:
+            logger.warning(
+                f"[MAIN] {len(orphaned)} session(s) interrupted by a prior "
+                f"restart, marked as failed: {orphaned}"
+            )
     finally:
         db.close()
     yield
