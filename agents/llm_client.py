@@ -216,6 +216,16 @@ class LLMClient:
         # read by callers (e.g. BaseAgent) for logging/persistence.
         self.last_provider_key: str | None = None
 
+        # De-dupe guard for _compress_on_switch: (id(messages), len(messages))
+        # right after the last compression. Two back-to-back chat_with_tools()
+        # calls against the same agent's message list commonly both need a
+        # Tier-2 switch — e.g. call N compresses and falls back to provider B,
+        # call N+1 (next ReAct iteration) restarts the chain at the primary
+        # provider, which is still in its rate-limit backoff window (default
+        # 5 min) — without this, that second call would compress again with
+        # nothing new to fold in since the list hasn't grown.
+        self._last_compress_sig: tuple | None = None
+
         logger.info(
             f"[LLM] Primary: {self.provider} ({self.model}) | "
             f"Chain: {self._build_chain()} | "
@@ -386,10 +396,19 @@ class LLMClient:
         logger.error("[LLM] chat_with_tools: all providers exhausted")
         return {"type": "done", "content": "All LLM providers failed"}
 
-    @staticmethod
-    def _compress_on_switch(messages: list, on_switch: Callable):
+    def _compress_on_switch(self, messages: list, on_switch: Callable):
         """Run the caller's compression callback and splice the result into
-        `messages` in place, so both this retry and the caller's own copy see it."""
+        `messages` in place, so both this retry and the caller's own copy see it.
+
+        Skips the callback entirely if `messages` is unchanged (same object,
+        same length) since the last compression — nothing new has been added
+        to fold into the summary, so re-running it would just burn another
+        LLM call to produce essentially the same result. See _last_compress_sig.
+        """
+        sig = (id(messages), len(messages))
+        if sig == self._last_compress_sig:
+            logger.debug("[LLM] Skipping redundant compression — messages unchanged since last compression")
+            return
         try:
             summary = on_switch()
         except Exception as e:
@@ -401,6 +420,7 @@ class LLMClient:
             messages[:] = [messages[0], summary] + messages[-_AGENT_HISTORY_KEEP:]
         else:
             messages[:] = [messages[0], summary] + messages[1:]
+        self._last_compress_sig = (id(messages), len(messages))
 
     @staticmethod
     def _estimate_request_tokens(system: str, messages: list, tools: list) -> int:
