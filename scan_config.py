@@ -18,14 +18,11 @@ class ScanConfig(BaseModel):
 
     # ── Auth type selector (drives dynamic UI fields) ──────────────────────
     auth_type: str = "none"
-    # Options: none | basic | form | token | cookie | apikey | custom_headers
+    # Options: none | basic | token | cookie | apikey | custom_headers
 
-    # ── Basic / form auth ──────────────────────────────────────────────────
-    username:       Optional[str] = None
-    password:       Optional[str] = None
-    login_url:      Optional[str] = None   # form POST target
-    username_field: Optional[str] = "username"
-    password_field: Optional[str] = "password"
+    # ── Basic auth ──────────────────────────────────────────────────────────
+    username: Optional[str] = None
+    password: Optional[str] = None
 
     # ── Token auth ─────────────────────────────────────────────────────────
     auth_token:     Optional[str] = None   # Bearer / JWT
@@ -105,8 +102,6 @@ class ScanConfig(BaseModel):
             return f"Cookie auth — name: {self.session_cookie_name or 'session'}"
         if self.auth_type == "apikey":
             return f"API Key — in {self.api_key_in}: {self.api_key_name or 'X-API-Key'}"
-        if self.auth_type == "form":
-            return f"Form auth — login_url: {self.login_url or '?'}, user: {self.username or '?'}"
         if self.auth_type == "custom_headers":
             keys = list((self.custom_headers or {}).keys())
             return f"Custom headers: {keys}"

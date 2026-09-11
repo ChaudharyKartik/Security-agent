@@ -104,7 +104,6 @@ class ScanRequest(BaseModel):
     auth_type:            Optional[str]  = "none"
     username:             Optional[str]  = None
     password:             Optional[str]  = None
-    login_url:            Optional[str]  = None
     auth_token:           Optional[str]  = None
     token_header:         Optional[str]  = "Authorization"
     token_prefix:         Optional[str]  = "Bearer"

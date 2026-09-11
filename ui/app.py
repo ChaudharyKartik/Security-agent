@@ -416,21 +416,16 @@ if page == "Scan":
     st.divider()
 
     with st.expander("Authentication", expanded=False):
-        auth_type = st.selectbox("Method", ["None", "Basic", "Form", "Token", "Cookie", "API Key"])
+        auth_type = st.selectbox("Method", ["None", "Basic", "Token", "Cookie", "API Key"])
 
         # Map UI label → backend value
         _AUTH_MAP = {
-            "None": "none", "Basic": "basic", "Form": "form",
+            "None": "none", "Basic": "basic",
             "Token": "token", "Cookie": "cookie", "API Key": "apikey",
         }
         cred = {"auth_type": _AUTH_MAP[auth_type]}
 
         if auth_type == "Basic":
-            c1, c2 = st.columns(2)
-            cred["username"] = c1.text_input("Username")
-            cred["password"] = c2.text_input("Password", type="password")
-        elif auth_type == "Form":
-            cred["login_url"] = st.text_input("Login URL")
             c1, c2 = st.columns(2)
             cred["username"] = c1.text_input("Username")
             cred["password"] = c2.text_input("Password", type="password")
