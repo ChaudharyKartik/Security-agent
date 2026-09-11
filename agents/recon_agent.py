@@ -64,7 +64,8 @@ class ReconAgent:
             "TXT":   dns_lookup(hostname, "TXT"),
             "CNAME": dns_lookup(hostname, "CNAME"),
         }
-        logger.info(f"[RECON] DNS done — IP: {dns['A'].get('records', [None])[0]}")
+        a_records = dns["A"].get("records") or []
+        logger.info(f"[RECON] DNS done — IP: {a_records[0] if a_records else 'none'}")
 
         # ── Step 2: Port scan ──────────────────────────────────────────────────
         nmap       = run_nmap(hostname, ports="1-1000", flags=["-T4"])
