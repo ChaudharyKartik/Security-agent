@@ -12,7 +12,7 @@ import os
 import re
 from datetime import datetime
 
-from agents.base_agent import BaseAgent
+from agents.base_agent import BaseAgent, scale_iterations, depth_instruction
 from agents.tool_registry import build_registry
 from agents.tools.prowler_tool import run_prowler
 from agents.tools.http_tool import http_request
@@ -69,11 +69,13 @@ class CloudAgent:
             names = [getattr(t, "canonical_name", str(t)) for t in checklist_items]
             extra_context = f"\nFocus on these check categories: {', '.join(names)}"
 
+        scan_depth = getattr(config, "scan_depth", "standard") if config else "standard"
+
         agent = BaseAgent(
             llm            = self.llm,
             tool_registry  = registry,
             system_prompt  = _SYSTEM_PROMPT,
-            max_iterations = int(os.getenv("CLOUD_MAX_ITERATIONS", "15")),
+            max_iterations = scale_iterations(int(os.getenv("CLOUD_MAX_ITERATIONS", "15")), scan_depth),
             scope          = self.scope or target,
             auth_headers   = config.build_auth_headers() if config else None,
             session_id     = session_id,
@@ -88,6 +90,7 @@ class CloudAgent:
             + f"\nAuth: {config.build_auth_summary() if config else 'Unauthenticated'}"
             + extra_context
             + _METHODOLOGY
+            + depth_instruction(scan_depth)
         )
 
         start  = datetime.utcnow()

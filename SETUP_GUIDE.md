@@ -286,6 +286,16 @@ curl -X DELETE -H "$AUTH" http://localhost:8000/session/A1B2C3D4
 | `checklist` | Pass specific WSTG test IDs or names as focus hints |
 | `single` | Run exactly one agent with the test as its goal |
 
+`scan_mode` picks which agents run; `scan_depth` (below) is separate — it controls how thoroughly each one works. The two combine freely.
+
+## Scan Depth
+
+| Depth | What changes |
+|-------|--------------|
+| `quick` | ~60% of the default iteration budget, a "prioritize the obvious high-value checks" instruction, and a narrower `1-1000` Nmap port range. Fastest, cheapest on LLM calls — good for triaging many targets or a smoke test. |
+| `standard` (default) | Unchanged from every scan before `scan_depth` existed — the normal engagement depth. |
+| `deep` | ~150% of the default iteration budget, an "exhaustively test every input/endpoint/service" instruction, and a full-range Nmap scan with `-sC --version-intensity 9` for thorough service detection. Slower and uses more LLM calls — use it for a high-value target or a final validation pass. |
+
 ---
 
 ## Authenticated Scans

@@ -371,7 +371,16 @@ if page == "Scan":
         )
     with c3:
         st.markdown("### Depth")
-        scan_depth_label = st.selectbox("Scan Depth", ["Standard", "Quick", "Deep"], label_visibility="collapsed")
+        scan_depth_label = st.selectbox(
+            "Scan Depth",
+            ["Standard", "Quick", "Deep"],
+            label_visibility="collapsed",
+            help=(
+                "Quick: fewer iterations, common-port network scan, fastest/cheapest\n"
+                "Standard: default balance of thoroughness and speed\n"
+                "Deep: more iterations, exhaustive input coverage, thorough port/service scan"
+            ),
+        )
 
     _MODE_MAP = {
         "Full": "full",

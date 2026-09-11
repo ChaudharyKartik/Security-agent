@@ -13,7 +13,7 @@ import re
 from datetime import datetime
 from urllib.parse import urlparse
 
-from agents.base_agent import BaseAgent
+from agents.base_agent import BaseAgent, scale_iterations, depth_instruction
 from agents.tool_registry import build_registry
 from agents.tools.http_tool import http_request
 from agents.tools.nuclei_tool import run_nuclei
@@ -130,12 +130,13 @@ class WebAgent:
 
         iter_env = "WEB_SINGLE_MODE_MAX_ITERATIONS" if focused else "WEB_MAX_ITERATIONS"
         iter_default = "35" if focused else "20"
+        scan_depth = getattr(config, "scan_depth", "standard") if config else "standard"
 
         agent = BaseAgent(
             llm            = self.llm,
             tool_registry  = registry,
             system_prompt  = _SYSTEM_PROMPT,
-            max_iterations = int(os.getenv(iter_env, iter_default)),
+            max_iterations = scale_iterations(int(os.getenv(iter_env, iter_default)), scan_depth),
             scope          = scope,
             auth_headers   = config.build_auth_headers() if config else None,
             session_id     = session_id,
@@ -147,6 +148,7 @@ class WebAgent:
             f"Auth: {config.build_auth_summary() if config else 'Unauthenticated'}"
             f"{extra_context}"
             f"{_FOCUSED_METHODOLOGY if focused else _METHODOLOGY}"
+            f"{depth_instruction(scan_depth)}"
         )
 
         start  = datetime.utcnow()

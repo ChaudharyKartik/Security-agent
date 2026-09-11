@@ -139,6 +139,14 @@ class ScanRequest(BaseModel):
             raise ValueError(f"scan_mode must be one of: {valid}")
         return v
 
+    @field_validator("scan_depth")
+    @classmethod
+    def valid_depth(cls, v):
+        valid = {"quick", "standard", "deep"}
+        if v not in valid:
+            raise ValueError(f"scan_depth must be one of: {valid}")
+        return v
+
     def to_scan_config(self) -> ScanConfig:
         return ScanConfig(**{k: v for k, v in self.model_dump().items()
                              if k in ScanConfig.model_fields})

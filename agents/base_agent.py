@@ -27,6 +27,41 @@ DONE_SIGNAL = "done"
 
 _TRUNCATE_MAX = 4000
 
+# ── Scan depth (ScanConfig.scan_depth: quick | standard | deep) ───────────────
+# Shared here rather than duplicated per-agent so Web/Network/Cloud apply one
+# consistent multiplier table. "standard" is exactly 1.0x with no added
+# instruction — it must reproduce today's behavior unchanged, since it's the
+# existing default every prior scan already used.
+_DEPTH_ITERATION_MULTIPLIER = {"quick": 0.6, "standard": 1.0, "deep": 1.5}
+
+_DEPTH_INSTRUCTIONS = {
+    "quick": (
+        "\nSCAN DEPTH: QUICK — this is a time-boxed scan. Prioritize the "
+        "highest-signal, most common checks for this target type. Do not "
+        "exhaustively test every input/endpoint/service — cover the obvious "
+        "high-value checks and conclude."
+    ),
+    "standard": "",
+    "deep": (
+        "\nSCAN DEPTH: DEEP — prioritize completeness over speed. Test every "
+        "discovered input, endpoint, or service thoroughly, including "
+        "secondary/less-obvious attack surface, before calling done()."
+    ),
+}
+
+
+def scale_iterations(base: int, scan_depth: str) -> int:
+    """Scale an agent's max-iteration budget by scan_depth. An unrecognized
+    or missing depth falls back to standard (1x) rather than raising —
+    scan_depth is optional everywhere it's read."""
+    mult = _DEPTH_ITERATION_MULTIPLIER.get(scan_depth, 1.0)
+    return max(1, round(base * mult))
+
+
+def depth_instruction(scan_depth: str) -> str:
+    """Extra methodology text appended to the goal — empty for standard."""
+    return _DEPTH_INSTRUCTIONS.get(scan_depth, "")
+
 
 def _truncate(d: Any, max_len: int = _TRUNCATE_MAX) -> Any:
     """Truncate any value to a string under max_len for safe LLM consumption."""

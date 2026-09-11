@@ -122,6 +122,7 @@ class Orchestrator:
 
             session["execution_plan"] = {
                 "scan_mode":    scan_mode,
+                "scan_depth":   self.config.scan_depth if self.config else "standard",
                 "domain":       domain,
                 "agents":       list(agent_groups.keys()),
                 "focus_tests":  requested_tests or [],
@@ -354,6 +355,7 @@ class Orchestrator:
             agent_groups = self._select_agents(domain, "single", requested_tests)
             session["execution_plan"] = {
                 "scan_mode":   "single",
+                "scan_depth":  self.config.scan_depth if self.config else "standard",
                 "domain":      domain,
                 "agents":      list(agent_groups.keys()),
                 "focus_tests": requested_tests or [],

@@ -12,7 +12,7 @@ import os
 import re
 from datetime import datetime
 
-from agents.base_agent import BaseAgent
+from agents.base_agent import BaseAgent, scale_iterations, depth_instruction
 from agents.tool_registry import build_registry
 from agents.tools.nmap_tool import run_nmap
 from agents.tools.cve_tool import search_cve
@@ -50,6 +50,21 @@ FINDING TYPES: vulnerable_version | open_port | auth_misconfiguration | informat
 SEVERITY: Critical=unauth_DB+CVSS≥9+unauth_K8s | High=CVSS7-8.9+exposed_DB+default_creds | Medium=Telnet+RDP+CVSS4-6.9 | Low=CVSS<4 | Info=open_port_no_vuln
 EVIDENCE fields (all required): host, port, service, curl_poc, cve_id, observation"""
 
+# scan_depth-specific override for step 1's run_nmap() call — appended after
+# _METHODOLOGY, which itself always suggests the full ports="1-65535" range.
+_DEPTH_PORT_OVERRIDE = {
+    "quick": (
+        "\nDEPTH OVERRIDE for step 1: use ports=\"1-1000\" instead of the full "
+        "range — this is a time-boxed scan, common ports only."
+    ),
+    "standard": "",
+    "deep": (
+        "\nDEPTH OVERRIDE for step 1: keep the full port range, and also pass "
+        "flags=[\"-T4\", \"-sC\", \"--version-intensity\", \"9\"] for more "
+        "thorough service/script detection."
+    ),
+}
+
 # ── Agent class ────────────────────────────────────────────────────────────────
 
 class NetworkAgent:
@@ -76,11 +91,13 @@ class NetworkAgent:
             names = [getattr(t, "canonical_name", str(t)) for t in checklist_items]
             extra_context = f"\nFocus on these test categories: {', '.join(names)}"
 
+        scan_depth = getattr(config, "scan_depth", "standard") if config else "standard"
+
         agent = BaseAgent(
             llm            = self.llm,
             tool_registry  = registry,
             system_prompt  = _SYSTEM_PROMPT,
-            max_iterations = int(os.getenv("NETWORK_MAX_ITERATIONS", "15")),
+            max_iterations = scale_iterations(int(os.getenv("NETWORK_MAX_ITERATIONS", "15")), scan_depth),
             scope          = self.scope or target,
             auth_headers   = config.build_auth_headers() if config else None,
             session_id     = session_id,
@@ -93,6 +110,8 @@ class NetworkAgent:
             f"Auth: {config.build_auth_summary() if config else 'Unauthenticated'}"
             f"{extra_context}"
             f"{_METHODOLOGY}"
+            f"{_DEPTH_PORT_OVERRIDE.get(scan_depth, '')}"
+            f"{depth_instruction(scan_depth)}"
         )
 
         start  = datetime.utcnow()
