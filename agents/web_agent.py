@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PROMPT = (
     "You are a web application penetration tester. "
     "Only call report_finding() when you have confirmed evidence in a tool response — "
-    "never on suspicion alone. Do not report missing security headers (recon handles those). "
+    "never on suspicion alone. "
     "One finding per unique vulnerability instance. Call done when all testing is complete."
 )
 
@@ -37,7 +37,13 @@ _METHODOLOGY = """
 TESTING PHASES:
 1. FINGERPRINT: GET target → note stack/inputs/auth; GET target/nonexistent → check error disclosure
 2. TEMPLATE SCAN: run_nuclei(target, tags=["cve","misconfig","exposed-panels","default-login","takeover"]) → confirm each result before reporting
-3. PASSIVE SCAN: run_zap(target,"spider") → run_zap(target,"passive") → confirm ZAP alerts before reporting
+3. PASSIVE SCAN: run_zap(target,"spider") → run_zap(target,"passive") → confirm ZAP alerts before reporting.
+   This includes header/cookie misconfig alerts — check both ZAP's alerts and Phase 1's response headers
+   directly for: missing X-Frame-Options / CSP frame-ancestors (clickjacking), missing
+   Strict-Transport-Security (HSTS), missing X-Content-Type-Options: nosniff, missing or weak
+   Content-Security-Policy, and cookies missing Secure/HttpOnly/SameSite. Report each as
+   missing_security_header (or insecure_cookie for cookie flags) — one finding per distinct missing
+   header/flag, not one bundled finding.
 4. MANUAL TESTING (based on observations from phases 1-3):
    XSS:              inject <script>alert(1)</script> into visible params — confirm unencoded reflection
    SQLi:             inject ' OR '1'='1 and 1' AND SLEEP(3)-- — confirm error/boolean diff/time delay
