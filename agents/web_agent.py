@@ -41,9 +41,13 @@ TESTING PHASES:
    This includes header/cookie misconfig alerts — check both ZAP's alerts and Phase 1's response headers
    directly for: missing X-Frame-Options / CSP frame-ancestors (clickjacking), missing
    Strict-Transport-Security (HSTS), missing X-Content-Type-Options: nosniff, missing or weak
-   Content-Security-Policy, and cookies missing Secure/HttpOnly/SameSite. Report each as
-   missing_security_header (or insecure_cookie for cookie flags) — one finding per distinct missing
-   header/flag, not one bundled finding.
+   Content-Security-Policy, and cookies missing Secure/HttpOnly/SameSite. Only call report_finding()
+   when a header/flag is ACTUALLY MISSING OR WEAK — a header that IS present and correctly configured
+   is not a finding, do not report it as one (same rule as every other category: you report
+   vulnerabilities, not confirmations that something is secure). Use the response from a normal page
+   load (2xx/3xx) for this check, not an error/blocked response (403/429/5xx) — a WAF or error page's
+   headers don't reflect the real application's configuration. Type: missing_security_header (or
+   insecure_cookie for cookie flags) — one finding per distinct missing header/flag, not bundled.
 4. MANUAL TESTING (based on observations from phases 1-3):
    XSS:              inject <script>alert(1)</script> into visible params — confirm unencoded reflection
    SQLi:             inject ' OR '1'='1 and 1' AND SLEEP(3)-- — confirm error/boolean diff/time delay
@@ -256,7 +260,8 @@ def _infer_type(name: str) -> str:
     if any(k in n for k in ("disclosure", "stack trace", "debug", "version",
                              "banner", "error", "directory listing")):
         return "information_disclosure"
-    if any(k in n for k in ("header", "csp", "hsts", "frame")):
+    if any(k in n for k in ("header", "csp", "hsts", "frame", "clickjack",
+                             "x-content-type-options", "nosniff")):
         return "missing_security_header"
     return "web_vulnerability"
 
