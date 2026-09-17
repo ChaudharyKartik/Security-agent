@@ -13,6 +13,33 @@ from cvss import calculate_cvss, cvss_from_finding_type, CVSSMetrics
 
 logger = logging.getLogger(__name__)
 
+# Phrases indicating the agent reported a WORKING security control, not a
+# vulnerability -- e.g. "Clickjacking Protection Properly Configured". A prompt
+# instruction alone ("don't report secure headers") isn't reliable: the LLM can
+# still call report_finding() with a real vulnerability `type` and a high CVSS
+# for one of these (seen in practice -- a "protection properly configured"
+# finding came back with type="auth_misconfiguration", CVSS 10.0). This is a
+# code-level backstop that can't be talked around by the model the way a
+# prompt instruction can: match on the finding's own name, then force it to a
+# non-vulnerability outcome regardless of whatever type/severity/CVSS it was
+# given. Substrings are 2+ words specifically to avoid false-triggering on a
+# genuine vulnerability whose name happens to contain one generic word like
+# "protection" or "security" on its own.
+_SECURE_OBSERVATION_PHRASES = (
+    "properly configured", "correctly configured", "securely configured",
+    "correctly implemented", "properly implemented",
+    "protection enabled", "protection properly configured",
+    "protection working", "protection confirmed", "protection in place",
+    "negative finding", "not vulnerable", "no vulnerability",
+    "security control verified", "already protected",
+)
+
+
+def _is_secure_observation(name: str) -> bool:
+    n = (name or "").lower()
+    return any(phrase in n for phrase in _SECURE_OBSERVATION_PHRASES)
+
+
 COMPLIANCE_MAP = {
     "missing_security_header":  ["OWASP A05:2021", "PCI-DSS 6.2"],
     "insecure_cookie":          ["OWASP A02:2021", "PCI-DSS 6.2"],
@@ -101,8 +128,36 @@ def _enrich_single(finding: dict, module_name: str, target: str, tool_used: str,
     # to be shown next to a Medium-range score.
     severity = _normalize_severity(cvss_result["severity"])
 
+    # A finding whose own name describes a working security control (e.g.
+    # "Clickjacking Protection Properly Configured") is not a vulnerability
+    # regardless of what type/CVSS it was reported with — force it to a
+    # non-vulnerability outcome here rather than trusting the type/severity
+    # the LLM assigned. See _is_secure_observation's docstring for why this
+    # can't just be a prompt instruction.
+    is_secure_observation = _is_secure_observation(finding.get("name", ""))
+    if is_secure_observation:
+        severity = "Info"
+        cvss_result = {
+            **cvss_result,
+            "score": 0.0, "vector": None,
+            "exploitability_score": 0.0, "impact_score": 0.0,
+        }
+
     # ── Confidence scoring (heuristic — Phase 2) ──────────────────────────────
     confidence = _calculate_confidence(finding, tool_used, cvss_result)
+
+    if is_secure_observation:
+        exploitation_narrative = (
+            "This finding documents a working security control, not an exploitable "
+            "weakness — no attacker exploitation path applies. Verify the underlying "
+            "evidence still confirms the control is genuinely present and correctly "
+            "scoped (not just observed on an error/WAF-blocked response) before "
+            "including it in a client-facing report."
+        )
+        impact = "No adverse business impact — this is a positive security observation, not a vulnerability."
+    else:
+        exploitation_narrative = _build_exploitation_narrative(finding, severity, ftype, target)
+        impact = _build_severity_description(finding, severity, cvss_result["metrics"])
 
     return {
         "id":                  _generate_id(finding, module_name, session_id),
@@ -148,8 +203,8 @@ def _enrich_single(finding: dict, module_name: str, target: str, tool_used: str,
         "reproduction_steps":  _generate_reproduction_steps(finding, ftype, target),
 
         # Attacker narrative + business-impact statement
-        "exploitation_narrative": _build_exploitation_narrative(finding, severity, ftype, target),
-        "impact":                 _build_severity_description(finding, severity, cvss_result["metrics"]),
+        "exploitation_narrative": exploitation_narrative,
+        "impact":                 impact,
         "analyst_note":           _generate_analyst_note(finding, severity, module_name),
 
         # Compliance & metadata
