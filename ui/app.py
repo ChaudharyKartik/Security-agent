@@ -358,28 +358,30 @@ if page == "Scan":
         st.markdown("### Target")
         target = st.text_input("URL or IP", placeholder="https://example.com", label_visibility="collapsed")
     with c2:
-        st.markdown("### Scan Mode")
+        st.markdown(
+            '<h3 style="white-space:nowrap;">Scan Mode <span title="Full: all applicable tests&#10;'
+            'Checklist: specific tests you choose&#10;'
+            'Single: one vulnerability only" '
+            'style="cursor:help; font-size:15px; opacity:0.55;">&#9432;</span></h3>',
+            unsafe_allow_html=True,
+        )
         scan_mode_label = st.selectbox(
             "Scan Mode",
             ["Full", "Checklist", "Single Vulnerability"],
             label_visibility="collapsed",
-            help=(
-                "Full: all applicable tests\n"
-                "Checklist: specific tests you choose\n"
-                "Single: one vulnerability only"
-            ),
         )
     with c3:
-        st.markdown("### Depth")
+        st.markdown(
+            '<h3 style="white-space:nowrap;">Depth <span title="Quick: fewer iterations, common-port network scan, fastest/cheapest&#10;'
+            'Standard: default balance of thoroughness and speed&#10;'
+            'Deep: more iterations, exhaustive input coverage, thorough port/service scan" '
+            'style="cursor:help; font-size:15px; opacity:0.55;">&#9432;</span></h3>',
+            unsafe_allow_html=True,
+        )
         scan_depth_label = st.selectbox(
             "Scan Depth",
             ["Standard", "Quick", "Deep"],
             label_visibility="collapsed",
-            help=(
-                "Quick: fewer iterations, common-port network scan, fastest/cheapest\n"
-                "Standard: default balance of thoroughness and speed\n"
-                "Deep: more iterations, exhaustive input coverage, thorough port/service scan"
-            ),
         )
 
     _MODE_MAP = {
