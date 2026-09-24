@@ -30,14 +30,34 @@ _SECURE_OBSERVATION_PHRASES = (
     "correctly implemented", "properly implemented",
     "protection enabled", "protection properly configured",
     "protection working", "protection confirmed", "protection in place",
-    "negative finding", "not vulnerable", "no vulnerability",
+    "protected via", "negative finding", "not vulnerable", "no vulnerability",
     "security control verified", "already protected",
 )
 
+# Name-phrase matching alone is a losing game -- the model can always phrase
+# a "this is secure" finding a new way ("Protection Properly Configured",
+# then "Protected via X-Frame-Options and CSP", ad infinitum), and it has, in
+# practice, across multiple real scans. This second check is evidence-based
+# instead: for a clickjacking/framing-related finding specifically, if the
+# captured evidence itself contains the actual X-Frame-Options/frame-ancestors
+# header line, that's direct proof the header is present in the response --
+# which can't be true at the same time as a "missing header" vulnerability
+# claim, no matter what the finding is named or typed. Can't be evaded by
+# rewording since it checks the evidence content, not the prose around it.
+_CLICKJACKING_NAME_KEYWORDS = ("clickjack", "x-frame", "frame-option", "frame-ancestors")
+_CLICKJACKING_EVIDENCE_MARKERS = ("x-frame-options:", "frame-ancestors")
 
-def _is_secure_observation(name: str) -> bool:
-    n = (name or "").lower()
-    return any(phrase in n for phrase in _SECURE_OBSERVATION_PHRASES)
+
+def _is_secure_observation(finding: dict) -> bool:
+    name = (finding.get("name") or "").lower()
+    if any(phrase in name for phrase in _SECURE_OBSERVATION_PHRASES):
+        return True
+    if any(kw in name for kw in _CLICKJACKING_NAME_KEYWORDS):
+        evidence = finding.get("evidence") or {}
+        ev_text = " ".join(str(v) for v in evidence.values() if v).lower()
+        if any(marker in ev_text for marker in _CLICKJACKING_EVIDENCE_MARKERS):
+            return True
+    return False
 
 
 COMPLIANCE_MAP = {
@@ -134,7 +154,7 @@ def _enrich_single(finding: dict, module_name: str, target: str, tool_used: str,
     # non-vulnerability outcome here rather than trusting the type/severity
     # the LLM assigned. See _is_secure_observation's docstring for why this
     # can't just be a prompt instruction.
-    is_secure_observation = _is_secure_observation(finding.get("name", ""))
+    is_secure_observation = _is_secure_observation(finding)
     if is_secure_observation:
         severity = "Info"
         cvss_result = {
