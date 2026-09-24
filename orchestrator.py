@@ -25,6 +25,12 @@ from database import crud
 
 logger = logging.getLogger(__name__)
 
+_RATING_ORDER = ["CLEAN", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
+_SEVERITY_TO_RATING = {
+    "Critical": "CRITICAL", "High": "HIGH", "Medium": "MEDIUM",
+    "Low": "LOW", "Info": "CLEAN",
+}
+
 # Singletons — loaded once, shared across all scan sessions
 _reviewer_agent = ReviewerAgent(llm=get_llm())
 _report_agent   = ReportAgent(llm=get_llm())
@@ -311,7 +317,7 @@ class Orchestrator:
             "total_findings":     len(enriched),
             "severity_breakdown": counts,
             "overall_risk_score": score,
-            "risk_rating":        self._rating(score),
+            "risk_rating":        self._rating(score, counts),
             "agents_run":         session["agents_executed"],
             "tool_breakdown":     tools,
             "scan_mode":          session["scan_mode"],
@@ -320,12 +326,35 @@ class Orchestrator:
         }
 
     @staticmethod
-    def _rating(score: int) -> str:
-        if score >= 50: return "CRITICAL"
-        if score >= 25: return "HIGH"
-        if score >= 10: return "MEDIUM"
-        if score > 0:   return "LOW"
-        return "CLEAN"
+    def _rating(score: int, counts: dict = None) -> str:
+        """
+        Point-threshold rating, escalated to at least the highest individual
+        finding severity actually present. A pure point-sum can round a
+        single Critical finding (10 points, needs 50 for "CRITICAL") down to
+        "MEDIUM" overall -- misleading directly above a report that lists a
+        real Critical finding. This can only ever pull the rating UP to match
+        the worst finding present, never down below what the point math says.
+        """
+        if score >= 50:   threshold_rating = "CRITICAL"
+        elif score >= 25: threshold_rating = "HIGH"
+        elif score >= 10: threshold_rating = "MEDIUM"
+        elif score > 0:   threshold_rating = "LOW"
+        else:             threshold_rating = "CLEAN"
+
+        if not counts:
+            return threshold_rating
+
+        max_severity_rating = "CLEAN"
+        for sev, count in counts.items():
+            if count <= 0:
+                continue
+            mapped = _SEVERITY_TO_RATING.get(sev, "CLEAN")
+            if _RATING_ORDER.index(mapped) > _RATING_ORDER.index(max_severity_rating):
+                max_severity_rating = mapped
+
+        if _RATING_ORDER.index(max_severity_rating) > _RATING_ORDER.index(threshold_rating):
+            return max_severity_rating
+        return threshold_rating
 
     # TEMP: two-phase scan — runs phases 2-7 against a pre-existing recon result
     def run_agents_only(self, session: dict, requested_tests: list = None,
